@@ -1,0 +1,192 @@
+{
+    "$schema": "http://json-schema.org/schema#",
+    "$id": "http://switch.ch/schemas/packet_broker.json",
+
+    "definitions": {
+        "interface-config": {
+            "type": "object",
+            "required": [ "speed", "mtu" ],
+            
+            "properties": {
+                "speed": {
+                    "type": "string",
+                    "enum": [
+                        "BF_SPEED_1G",
+                        "BF_SPEED_10G",
+                        "BF_SPEED_25G",
+                        "BF_SPEED_40G",
+                        "BF_SPEED_40G_NB",
+                        "BF_SPEED_40G_NON_BREAKABLE",
+                        "BF_SPEED_50G",
+                        "BF_SPEED_100G"
+                    ]
+                },
+                
+                "fec": {
+                    "type": "string",
+                    "enum": [
+                        "BF_FEC_TYP_NONE",
+                        "BF_FEC_TYP_FIRECODE",
+                        "BF_FEC_TYP_REED_SOLOMON",
+                        "BF_FEC_TYP_FC",
+                        "BF_FEC_TYP_RS"
+                    ]
+                },
+
+                "mtu": {
+                    "type": "integer",
+                    "minimum": 1200,
+                    "maximum": 10240
+                }
+            },
+            "additionalProperties": false
+        },
+        
+        "vlan": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4095
+        }
+    },
+    
+    "type": "object",
+    "required": [ "ports" ],
+    
+    "properties": {
+        "ports": {
+            "type": "object",
+            "required": [ "ingress", "egress" ],
+            
+            "properties": {
+                "ingress": {
+                    "type": "object",
+                    
+                    "patternProperties": {
+                        "^[0-9]+/[0-9]+$": {
+                            "type": "object",
+                            "required": [ "config", "egress-group", "vlans" ],
+                            
+                            "properties": {
+                                "config": {
+                                    "$ref": "#/definitions/interface-config"
+                                },
+                                
+                                "egress-group": {
+                                    "type": "integer",
+                                    "minimum": 1
+                                },
+                                
+                                "vlans": {
+                                    "type": "object",
+
+                                    "properties": {
+                                        "push": {
+                                            "$ref": "#/definitions/vlan"
+                                        },
+
+                                        "rewrite": {
+                                            "type": "array",
+
+                                            "items": {
+                                                "type": "object",
+                                                "required": [ "in", "out" ],
+                                                "properties": {
+                                                    "in": {
+                                                        "$ref": "#/definitions/vlan"
+                                                    },
+                                                    "out": {
+                                                        "$ref": "#/definitions/vlan"
+                                                    }
+                                                },
+                                                "additionalProperties": false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                
+                "egress": {
+                    "type": "array",
+                    
+                    "items": {
+                        "type": "object",
+                        "required": [ "group-id", "members" ],
+                        
+                        "properties": {
+                            "group-id": {
+                                "type": "integer",
+                                "minimum": 1
+                            },
+                            
+                            "members": {
+                                "type": "object",
+                                "patternProperties": {
+                                    "^[0-9]+/[0-9]+$": {
+                                        "type": "object",
+                                        "required": [ "config" ],
+                                        "properties": {
+                                            "config": {
+                                                "$ref": "#/definitions/interface-config"
+                                            }
+                                        }
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+
+                "other": {
+                    "patternProperties": {
+                        "^[0-9]+/[0-9]+$": {
+                            "type": "object",
+                            "required": [ "config" ],
+                            
+                            "properties": {
+                                "config": {
+                                    "$ref": "#/definitions/interface-config"
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    }
+                }
+                
+            }
+        },
+        "source-filter": {
+            "type": "array",
+            
+            "items": {
+                "type": "string"
+            }
+        },
+        
+        "features": {
+            "type": "object",
+            
+            "properties": {
+                "deflect-on-drop": {
+                    "type": "string",
+                    "pattern": "^[0-9]+/[0-9]+$"
+                },
+                
+                "drop-non-initial-fragments": {
+                    "type": "boolean"
+                },
+                
+                "exclude-ports-from-hash": {
+                    "type": "boolean"
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "additionalProperties": false
+}

@@ -1,0 +1,51 @@
+#!/bin/bash
+
+### BEGIN INIT INFO
+# Provides:        packet-broker-configure
+# Required-Start:  $network $syslog packet-broker
+# Required-Stop:   
+# Default-Start:   2 3 4 5
+# Default-Stop: 
+# Short-Description: Start bf_switchd with packet-broker P4 program
+### END INIT INFO
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+LOG=/var/log/packet-broker-configure
+
+. /lib/lsb/init-functions
+
+BASE=/home/gall
+SDE=${BASE}/bf-sde-9.1.0
+TOOLS=${BASE}/tools
+BFRT_SETUP=${BASE}/packet-broker/bfrt_setup.py
+
+cd $SDE
+source $TOOLS/set_sde.bash
+
+BFSHELL=${SDE_INSTALL}/bin/bfshell
+
+test -x $RUN_SWITCHD || exit 5
+
+LOCKFILE=/run/lock/ntpdate
+
+case $1 in
+    start)
+        attempts=20
+        while ! $BFSHELL -b $BFRT_SETUP >>$LOG 2>&1 && ((attempts--)); do
+	    log_daemon_msg "Packet-broker" "configuration"
+            log_end_msg 1
+            sleep 1;
+        done
+        if [ $attempts -gt 0 ]; then
+            log_daemon_msg "Packet-broker" "configured sucessfully"
+            log_end_msg 0
+        else
+            log_daemon_msg "Packet-broker" "configuration failed"
+            log_end_msg 1
+        fi
+        ;;
+    *)
+	echo "Usage: $0 {start}"
+	exit 2
+	;;
+esac

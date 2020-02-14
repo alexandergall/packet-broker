@@ -10,6 +10,7 @@ from json import load
 from jsonschema import validate
 import ipaddress
 
+config_dir = '/etc/packet-broker'
 ports_new = {}
 ports_old = []
 groups = {}
@@ -113,8 +114,8 @@ def json_load(name):
     file.close()
     return parsed
 
-config = json_load('/etc/packet_broker/config.json')
-schema = json_load('/etc/packet_broker/schema.json')
+config = json_load(config_dir + '/config.json')
+schema = json_load(config_dir + '/schema.json')
 validate(config, schema)
 
 ### Get the list of ports that are currently configured (i.e. that

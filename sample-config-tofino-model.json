@@ -1,0 +1,83 @@
+{
+    "ports": {
+        "ingress": {
+            "1/0": {
+                "config": {
+                    "speed": "BF_SPEED_10G",
+                    "mtu": 9014
+                },
+                "vlans": {
+                    "push": 10
+                },
+                "egress-group": 1
+            },
+            "1/1": {
+                "config": {
+                    "speed": "BF_SPEED_10G",
+                    "mtu": 9014
+                },
+                "vlans": {
+                    "rewrite": [
+                        {
+                            "in": 100,
+                            "out": 200
+                        }
+                    ]
+                },
+                "egress-group": 1
+            },
+            "1/2": {
+                "config": {
+                    "speed": "BF_SPEED_10G",
+                    "mtu": 9014
+                },
+                "vlans": {
+                    "push": 20
+                },
+                "egress-group": 1
+            }
+        },
+        "egress": [
+            {
+                "group-id": 1,
+                "members": {
+                    "4/0": {
+                        "config": {
+                            "speed": "BF_SPEED_10G",
+                            "mtu": 9014
+                        }
+                    },
+                    "4/1": {
+                        "config": {
+                            "speed": "BF_SPEED_10G",
+                            "mtu": 9014
+                        }
+                    },
+                    "4/2": {
+                        "config": {
+                            "speed": "BF_SPEED_10G",
+                            "mtu": 9014
+                        }
+                    }
+                }
+            }
+        ],
+        "other": {
+            "65/0": {
+                "config": {
+                    "speed": "BF_SPEED_10G",
+                    "mtu": 10240
+                }
+            }
+        }
+    },
+    "source-filter": [
+        "192.168.0.1/32",
+        "2001:db8:0:0::1/128"
+    ],
+    "features": {
+        "deflect-on-drop": "65/0",
+        "drop-non-initial-fragments": false,
+        "exclude-ports-from-hash": false
+    }
+}

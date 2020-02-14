@@ -4,18 +4,18 @@
 #include <tofino.p4>
 #include <tna.p4>
 
-#include "types.p4"
-#include "protocol_headers.p4"
-#include "metadata.p4"
-#include "headers.p4"
+#include "include/types.p4"
+#include "include/protocol_headers.p4"
+#include "include/metadata.p4"
+#include "include/headers.p4"
 
-#include "parser.p4"
-#include "drop.p4"
-#include "vlan.p4"
-#include "filter.p4"
-#include "hash.p4"
-#include "forward.p4"
-#include "egress.p4"
+#include "include/parser.p4"
+#include "include/drop.p4"
+#include "include/vlan.p4"
+#include "include/filter.p4"
+#include "include/hash.p4"
+#include "include/forward.p4"
+#include "include/egress.p4"
 
 control ig_ctl(
     inout headers hdr, inout ingress_metadata_t ig_md,

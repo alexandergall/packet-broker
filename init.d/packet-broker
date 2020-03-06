@@ -9,6 +9,8 @@
 # Short-Description: Start bf_switchd with packet-broker P4 program
 ### END INIT INFO
 
+set -e
+
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
 LOG=/var/log/bf_switchd
 
@@ -25,34 +27,35 @@ RUN_SWITCHD=${SDE}/run_switchd.sh
 
 test -x $RUN_SWITCHD || exit 5
 
-if ! lsmod | grep bf_kdrv >/dev/null; then
-    $SDE_INSTALL/bin/bf_kdrv_mod_load $SDE_INSTALL
-fi
-
 case $1 in
-	start)
-		log_daemon_msg "Starting packet-broker server" "bf_switchd"
-		start-stop-daemon --start --name bf_switchd \
-                                  --startas $RUN_SWITCHD --background --no-close \
-                                  -- -p packet_broker -- --background >>$LOG 2>&1
-		log_end_msg $?
-  		;;
-	stop)
-		log_daemon_msg "Stopping packet-broker server" "bf_switchd"
-		start-stop-daemon --stop --name bf_switchd --retry=INT/30/KILL/5
-		log_end_msg $?
-  		;;
-	restart|force-reload)
-		$0 stop && sleep 2 && $0 start
-  		;;
-	reload)
-		exit 3
-		;;
-	status)
-		status_of_proc bf_switchd "Packet-broker server"
-		;;
-	*)
-		echo "Usage: $0 {start|stop|restart|force-reload|status}"
-		exit 2
-		;;
+    start)
+        if ! lsmod | grep bf_kpkt >/dev/null; then
+            $SDE_INSTALL/bin/bf_kdrv_mod_unload || true
+            $SDE_INSTALL/bin/bf_kpkt_mod_load $SDE_INSTALL
+        fi
+
+        log_daemon_msg "Starting packet-broker server" "bf_switchd"
+        start-stop-daemon --start --name bf_switchd \
+                          --startas $RUN_SWITCHD --background --no-close \
+                          -- -p packet_broker -- --background >>$LOG 2>&1
+        log_end_msg $?
+        ;;
+    stop)
+        log_daemon_msg "Stopping packet-broker server" "bf_switchd"
+        start-stop-daemon --stop --name bf_switchd --retry=INT/30/KILL/5
+        log_end_msg $?
+        ;;
+    restart|force-reload)
+        $0 stop && sleep 2 && $0 start
+        ;;
+    reload)
+        exit 3
+        ;;
+    status)
+        status_of_proc bf_switchd "Packet-broker server"
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|force-reload|status}"
+        exit 2
+        ;;
 esac

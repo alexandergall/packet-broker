@@ -180,7 +180,10 @@ if 'features' in config.keys():
     for feature, value in config['features'].items():
         if feature == 'deflect-on-drop':
             indent("Deflect-on-drop to port {0}".format(value))
-            tbls['drop'].set_default_with_send_to_port(port = get_dev_port(value))
+            if re.match("^[0-9]+$", value):
+                tbls['drop'].set_default_with_send_to_port(port = value)
+            else:
+                tbls['drop'].set_default_with_send_to_port(port = get_dev_port(value))
         if feature == 'drop-non-initial-fragments' and value:
             indent("Drop non-initial fragemnts")
             tbls['maybe_drop_fragment'].set_default_with_act_mark_to_drop()

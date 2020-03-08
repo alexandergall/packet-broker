@@ -16,6 +16,9 @@ ports_old = []
 groups = {}
 ingress = {}
 source_filter = []
+flow_mirror = []
+
+MIRROR_SESSION = 1
 
 bf_port = bfrt.port
 
@@ -27,6 +30,8 @@ ctls = {
     'forward' : ig_ctl.ctl_forward_packet,
     'filter_ipv4' : ig_ctl.ctl_filter_source_ipv4,
     'filter_ipv6' : ig_ctl.ctl_filter_source_ipv6,
+    'mirror_ipv4' : ig_ctl.ctl_mirror_flows_ipv4,
+    'mirror_ipv6' : ig_ctl.ctl_mirror_flows_ipv6,
     'maybe_exclude_l4_from_hash' : ig_ctl.ctl_maybe_exclude_l4_from_hash,
     'maybe_drop_fragment' : ig_ctl.ctl_maybe_drop_fragment,
     'drop' : ig_ctl.ctl_drop_packet
@@ -37,6 +42,8 @@ tbls = {
     'ingress_tagged' : ctls['vlan'].tbl_ingress_tagged,
     'filter_ipv4' : ctls['filter_ipv4'].tbl_filter_source_ipv4,
     'filter_ipv6' : ctls['filter_ipv6'].tbl_filter_source_ipv6,
+    'mirror_ipv4' : ctls['mirror_ipv4'].tbl_mirror_flows_ipv4,
+    'mirror_ipv6' : ctls['mirror_ipv6'].tbl_mirror_flows_ipv6,
     'select_output' : ctls['forward'].tbl_select_output,
     'forward' : ctls['forward'].tbl_forward,
     'port_groups' : ctls['forward'].port_groups,
@@ -45,6 +52,10 @@ tbls = {
     'drop' : ctls['drop'].tbl_drop,
     'maybe_drop_fragment' : ctls['maybe_drop_fragment'].tbl_maybe_drop_fragment
 }
+
+def semantic_error(msg):
+    sys.tracebacklimit = None
+    raise Exception(msg)
 
 indent_level = 0
 
@@ -64,10 +75,14 @@ def get_dev_port(port):
     global bf_port
     return bf_port.port_str_info.get(port_name=port,
                                      print_ents=False).data[b'$DEV_PORT']
+def format_port(port):
+    if re.match("^[0-9]+$", port):
+        return "physical port {0:d}".format(port)
+    return "{0:s} (physical port {1:d})".format(port, get_dev_port(port))
 
 def add_port(port, config):
     if port in ports_new.keys():
-        sys.exit("port {0:s} already defined".format(port))
+        semantic_error("port {0:s} already defined".format(port))
     ports_new[port] = config
     
 def configure_port(port, config):
@@ -75,6 +90,7 @@ def configure_port(port, config):
     global ports_new
     global bf_port
     global get_dev_port
+    global format_port
     global indent
     global indent_up
     global indent_down
@@ -84,7 +100,7 @@ def configure_port(port, config):
     mtu = config['mtu']
     fec = config.get('fec', "BF_FEC_TYP_NONE")
 
-    indent("Port {0:s} (phys port {1:d}):".format(port, dev_port))
+    indent("Port " + format_port(port))
     indent_up()
     indent("Speed: {0}".format(speed))
     indent("MTU  : {0}".format(mtu))
@@ -105,7 +121,6 @@ def configure_port(port, config):
 def clear_tables(tables):
     for table in tables:
         name = table.info(return_info=True, print_info=False)['table_name']
-        indent("clearing table '{0:s}'".format(name))
         table.clear()
 
 def json_load(name):
@@ -129,13 +144,13 @@ indent_up()
 for group in config['ports']['egress']:
     id = group['group-id']
     if id in groups.keys():
-        sys.exit("group id {0:d} already defined".format(id))
+        semantic_error("group id {0:d} already defined".format(id))
 
     indent("Group {0:d}".format(id))
     indent_up()
     groups[id] = []
     for port, dict in sorted(group['members'].items()):
-        indent("Port {0:s}".format(port))
+        indent("Port " + format_port(port))
         add_port(port, dict['config'])
         groups[id].append(port)
     indent_down()
@@ -144,7 +159,7 @@ indent_down()
 indent("Setting up ingress ports")
 indent_up()
 for port, dict in sorted(config['ports']['ingress'].items()):
-    indent("Port {0:s}".format(port))
+    indent("Port " + format_port(port))
     add_port(port, dict['config'])
     ingress[port] = {
         'vlans' : dict['vlans'],
@@ -155,7 +170,7 @@ indent_down()
 indent("Setting up other ports")
 indent_up()
 for port, dict in sorted(config['ports']['other'].items()):
-    indent("Port {0}".format(port))
+    indent("Port " + format_port(port))
     add_port(port, dict['config'])
 indent_down()
 
@@ -168,7 +183,46 @@ if 'source-filter' in config.keys():
         source_filter.append(prefix)
     indent_down()
 
-### Defaults
+if 'flow-mirror' in config.keys():
+    indent("Setting flow mirrors")
+    indent_up()
+
+    def format_l4_port(spec):
+        return("port 0x{0:04X}({0:d}) mask 0x{1:04X}".format(
+            spec['port'], spec['mask']))
+
+    def add_flow(flow):
+        global ipaddress
+        global format_l4_port
+
+        src = ipaddress.ip_network(flow['src'])
+        dst = ipaddress.ip_network(flow['dst'])
+        src_port = flow['src_port']
+        dst_port = flow['dst_port']
+
+        indent("{0:s} {1:s} -> {2:s} {3:s}".format(
+            src.with_prefixlen, format_l4_port(src_port),
+            dst.with_prefixlen, format_l4_port(dst_port)))
+        if src.version != dst.version:
+            semantic_error("address family mismatch")
+            flow_mirror.append([ src, dst, src_port, dst_port ])
+
+    for flow in config['flow-mirror']:
+        if 'enable' in flow.keys() and not flow['enable']:
+            continue
+        if (not 'features' in config.keys() or
+            not 'flow-mirror' in config['features'].keys()):
+            semantic_error("mirror destination missing")
+
+        add_flow(flow)
+        if not 'bidir' in flow.keys() or flow['bidir']:
+            add_flow({ 'src': flow['dst'],
+                       'dst': flow['src'],
+                       'src_port': flow['dst_port'],
+                       'dst_port': flow['src_port'] })
+    indent_down()
+
+### Feature defaults
 tbls['drop'].set_default_with_real_drop()
 tbls['maybe_drop_fragment'].set_default_with_NoAction()
 tbls['maybe_exclude_l4'].set_default_with_NoAction()
@@ -179,14 +233,44 @@ if 'features' in config.keys():
     
     for feature, value in config['features'].items():
         if feature == 'deflect-on-drop':
-            indent("Deflect-on-drop to port {0}".format(value))
+            indent("Deflect-on-drop to port " + format_port(value))
             if re.match("^[0-9]+$", value):
                 tbls['drop'].set_default_with_send_to_port(port = value)
             else:
                 tbls['drop'].set_default_with_send_to_port(port = get_dev_port(value))
+
+        if feature == 'flow-mirror':
+            indent("Flow mirror")
+            indent_up()
+            cfg = value
+
+            port = cfg['port']
+            indent("Destination port " + format_port(port))
+            if not re.match("^[0-9]+$", port):
+                port = get_dev_port(port)
+
+            if 'max-packet-length' in cfg.keys():
+                max_pkt_len = cfg['max-packet-length']
+            else:
+                max_pkt_len = 16384
+            indent("Maximum packet length {0:d}".format(max_pkt_len))
+
+            mirror = bfrt.mirror.cfg
+            mirror.add_with_normal(
+                sid = MIRROR_SESSION,
+                session_enable = True,
+                direction = 'INGRESS',
+                ucast_egress_port = port,
+                ucast_egress_port_valid = True,
+                max_pkt_len = max_pkt_len
+            )
+
+            indent_down()
+
         if feature == 'drop-non-initial-fragments' and value:
             indent("Drop non-initial fragemnts")
             tbls['maybe_drop_fragment'].set_default_with_act_mark_to_drop()
+
         if feature == 'exclude-ports-from-hash' and value:
             indent("Exclude L4 ports from hash")
             tbls['maybe_exclude_l4'].set_default_with_act_exclude_l4()        
@@ -206,7 +290,8 @@ for group, ports in groups.items():
     member_list = []
     for port in ports:
         dev_port = get_dev_port(port)
-        indent("Adding action profile member {0:d} port {1:d}".format(member_id, dev_port))
+        indent("Adding action profile member {0:d} port {1:s}".
+               format(member_id, format_port(port)))
         member_list.append(member_id)
         tbls['port_groups'].add_with_act_send(action_member_id = member_id,
                                               egress_port = get_dev_port(port))
@@ -231,7 +316,7 @@ for port, dict in sorted(ingress.items()):
     egress_group = dict['egress_group']
     indent("Output group for port {0:s} is {1:d}".format(port, egress_group))
     if not egress_group in groups.keys():
-        sys.exit("Undefined egress group {0:d}".format(egress_group))
+        semantic_error("Undefined egress group {0:d}".format(egress_group))
         
     tbls['select_output'].add_with_act_output_group(ingress_port = dev_port,
                                                         group = egress_group)
@@ -252,6 +337,23 @@ for prefix in source_filter:
         tbl = tbls['filter_ipv6']
     tbl.add_with_act_drop(src_addr = prefix.network_address,
                           src_addr_p_length = prefix.prefixlen)
+
+clear_tables([tbls['mirror_ipv4'], tbls['mirror_ipv6']])
+for flow in flow_mirror:
+    src = flow[0]
+    dst = flow[1]
+    src_port = flow[2]
+    dst_port = flow[3]
+    if src.version == 4:
+        tbl = tbls['mirror_ipv4']
+    else:
+        tbl = tbls['mirror_ipv6']
+    tbl.add_with_act_mirror(
+        src_addr = src.network_address, src_addr_mask = int(src.netmask),
+        dst_addr = dst.network_address, dst_addr_mask = int(dst.netmask),
+        src_port = src_port['port'], src_port_mask = src_port['mask'],
+        dst_port = dst_port['port'], dst_port_mask = dst_port['mask'],
+        mirror_session = MIRROR_SESSION)
 
 indent_down()
     

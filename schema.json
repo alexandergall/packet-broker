@@ -42,10 +42,48 @@
             "additionalProperties": false
         },
         
+        "port": {
+            "type": "object",
+            "patternProperties": {
+                "^[0-9]+/[0-9]+$": {
+                    "type": "object",
+                    "required": [ "config" ],
+
+                    "properties": {
+                        "config": {
+                            "$ref": "#/definitions/interface-config"
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            }
+        },
+
+        "logical-or-physical-port-pattern": {
+            "type": "string",
+            "pattern": "^([0-9]+/[0-9]+|[0-9]+)$"
+        },
+
         "vlan": {
             "type": "integer",
             "minimum": 1,
             "maximum": 4095
+        },
+
+        "port-spec": {
+            "type": "object",
+            "properties": {
+                "port": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                },
+                "mask": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                }
+            }
         }
     },
     
@@ -60,12 +98,11 @@
             "properties": {
                 "ingress": {
                     "type": "object",
-                    
                     "patternProperties": {
                         "^[0-9]+/[0-9]+$": {
                             "type": "object",
                             "required": [ "config", "egress-group", "vlans" ],
-                            
+
                             "properties": {
                                 "config": {
                                     "$ref": "#/definitions/interface-config"
@@ -123,19 +160,7 @@
                             },
                             
                             "members": {
-                                "type": "object",
-                                "patternProperties": {
-                                    "^[0-9]+/[0-9]+$": {
-                                        "type": "object",
-                                        "required": [ "config" ],
-                                        "properties": {
-                                            "config": {
-                                                "$ref": "#/definitions/interface-config"
-                                            }
-                                        }
-                                    }
-                                },
-                                "additionalProperties": false
+                                "$ref": "#/definitions/port"
                             }
                         },
                         "additionalProperties": false
@@ -143,19 +168,7 @@
                 },
 
                 "other": {
-                    "patternProperties": {
-                        "^[0-9]+/[0-9]+$": {
-                            "type": "object",
-                            "required": [ "config" ],
-                            
-                            "properties": {
-                                "config": {
-                                    "$ref": "#/definitions/interface-config"
-                                }
-                            },
-                            "additionalProperties": false
-                        }
-                    }
+                    "$ref": "#/definitions/port"
                 }
                 
             }
@@ -167,14 +180,61 @@
                 "type": "string"
             }
         },
+
+        "flow-mirror": {
+            "type": "array",
+
+            "items": {
+                "type": "object",
+                "required": [ "src", "dst", "src_port", "dst_port" ],
+
+                "properties": {
+                    "src": {
+                        "type": "string"
+                    },
+                    "dst": {
+                        "type": "string"
+                    },
+                    "src_port": {
+                        "$ref": "#/definitions/port-spec"
+                    },
+                    "dst_port": {
+                        "$ref": "#/definitions/port-spec"
+                    },
+                    "bidir": {
+                        "type": "boolean"
+                    },
+                    "enable": {
+                        "type": "boolean"
+                    }
+                },
+                "additionalProperties": false
+            }
+        },
         
         "features": {
             "type": "object",
             
             "properties": {
                 "deflect-on-drop": {
-                    "type": "string",
-                    "pattern": "^([0-9]+/[0-9]+|[0-9]+)$"
+                    "$ref": "#/definitions/logical-or-physical-port-pattern"
+                },
+
+                "flow-mirror": {
+                    "type": "object",
+                    "required": [ "port" ],
+                    "properties": {
+
+                        "port": {
+                            "$ref": "#/definitions/logical-or-physical-port-pattern"
+                        },
+                        "max-packet-length": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 16384
+                        }
+                    },
+                    "additionalProperties": false
                 },
                 
                 "drop-non-initial-fragments": {

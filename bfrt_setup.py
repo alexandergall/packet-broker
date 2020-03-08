@@ -77,7 +77,7 @@ def get_dev_port(port):
                                      print_ents=False).data[b'$DEV_PORT']
 def format_port(port):
     if re.match("^[0-9]+$", port):
-        return "physical port {0:d}".format(port)
+        return "physical port {0:d}".format(int(port))
     return "{0:s} (physical port {1:d})".format(port, get_dev_port(port))
 
 def add_port(port, config):

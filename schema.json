@@ -8,6 +8,10 @@
             "required": [ "speed", "mtu" ],
             
             "properties": {
+                "description": {
+                    "type": "string"
+                },
+
                 "speed": {
                     "type": "string",
                     "enum": [

@@ -6,8 +6,8 @@
 import sys
 sys.path.append('/usr/local/lib/python3.5/dist-packages')
 sys.path.append('/usr/local/lib/python2.7/dist-packages/jsonschema-2.6.0-py2.7.egg')
-from json import load
-from jsonschema import validate
+import json
+import jsonschema
 import ipaddress
 
 config_dir = '/etc/packet-broker'
@@ -102,6 +102,8 @@ def configure_port(port, config):
 
     indent("Port " + format_port(port))
     indent_up()
+    if 'description' in config.keys():
+        indent("Description: {0}".format(config['description']))
     indent("Speed: {0}".format(speed))
     indent("MTU  : {0}".format(mtu))
     indent("FEC  : {0}".format(fec))
@@ -131,7 +133,7 @@ def json_load(name):
 
 config = json_load(config_dir + '/config.json')
 schema = json_load(config_dir + '/schema.json')
-validate(config, schema)
+jsonschema.validate(config, schema)
 
 ### Get the list of ports that are currently configured (i.e. that
 ### have been added previously via the port.add() method).
@@ -194,6 +196,8 @@ if 'flow-mirror' in config.keys():
     def add_flow(flow):
         global ipaddress
         global format_l4_port
+        global flow_mirror
+        global semantic_error
 
         src = ipaddress.ip_network(flow['src'])
         dst = ipaddress.ip_network(flow['dst'])
@@ -205,7 +209,7 @@ if 'flow-mirror' in config.keys():
             dst.with_prefixlen, format_l4_port(dst_port)))
         if src.version != dst.version:
             semantic_error("address family mismatch")
-            flow_mirror.append([ src, dst, src_port, dst_port ])
+        flow_mirror.append([ src, dst, src_port, dst_port ])
 
     for flow in config['flow-mirror']:
         if 'enable' in flow.keys() and not flow['enable']:

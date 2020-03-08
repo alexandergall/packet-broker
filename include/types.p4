@@ -27,4 +27,8 @@ enum bit<16> ethertype_t {
     IPV6 = 0x86dd
 }
 
+enum bit<3> mirror_session_t {
+    FLOW = 0
+}
+
 #endif // _TYPES_P4_

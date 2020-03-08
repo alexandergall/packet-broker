@@ -25,6 +25,7 @@ parser ig_prs(
         ig_md.l4_lookup          = { 0, 0 };
         ig_md.non_first_fragment = 0;
         ig_md.drop               = 0;
+        ig_md.mirror_session     = 0;
 
         transition prs_ethernet;
     }

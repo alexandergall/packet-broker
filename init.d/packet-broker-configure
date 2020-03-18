@@ -6,7 +6,7 @@
 # Required-Stop:   
 # Default-Start:   2 3 4 5
 # Default-Stop: 
-# Short-Description: Start bf_switchd with packet-broker P4 program
+# Short-Description: packet-broker P4 configuration daemon
 ### END INIT INFO
 
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
@@ -17,35 +17,38 @@ LOG=/var/log/packet-broker-configure
 BASE=/home/gall
 SDE=${BASE}/bf-sde-9.1.0
 TOOLS=${BASE}/tools
-BFRT_SETUP=${BASE}/packet-broker/bfrt_setup.py
+CONFIGURE=${BASE}/packet-broker/configure.py
 
 cd $SDE
 source $TOOLS/set_sde.bash
 
-BFSHELL=${SDE_INSTALL}/bin/bfshell
-
 test -x $RUN_SWITCHD || exit 5
 
-LOCKFILE=/run/lock/ntpdate
+PIDFILE=/var/run/pb-configure.pid
 
 case $1 in
     start)
-        attempts=20
-        while ! $BFSHELL -b $BFRT_SETUP >>$LOG 2>&1 && ((attempts--)); do
-	    log_daemon_msg "Packet-broker" "configuration"
-            log_end_msg 1
-            sleep 1;
-        done
-        if [ $attempts -gt 0 ]; then
-            log_daemon_msg "Packet-broker" "configured sucessfully"
-            log_end_msg 0
-        else
-            log_daemon_msg "Packet-broker" "configuration failed"
-            log_end_msg 1
-        fi
+        log_daemon_msg "Starting packet-broker configuration daemon" "pb-configure"
+        start-stop-daemon --start --make-pidfile --pidfile $PIDFILE \
+                          --startas $CONFIGURE --background --no-close >>$LOG 2>&1
+        log_end_msg $?
+        ;;
+    stop)
+        log_daemon_msg "Stopping packet-broker configuration daemon" "pb-configure"
+        start-stop-daemon --remove-pidfile --pidfile $PIDFILE --stop --startas $CONFIGURE --retry=INT/30/KILL/5
+        log_end_msg $?
+        ;;
+    restart|force-reload)
+        $0 stop && sleep 2 && $0 start
+        ;;
+    reload)
+        kill -HUP $(cat $PIDFILE)
+        ;;
+    status)
+        status_of_proc -p $PIDFILE $CONFIGURE "Packet-broker configuration daemon"
         ;;
     *)
-	echo "Usage: $0 {start}"
+	echo "Usage: $0 {start|stop|restart|force-reload|status}"
 	exit 2
 	;;
 esac

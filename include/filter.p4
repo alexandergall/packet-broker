@@ -20,7 +20,7 @@ control ctl_filter_source_ipv4(
     
     table tbl_filter_source_ipv4 {
         key = {
-            hdr.ipv4.src_addr : lpm;
+            hdr.ipv4.src_addr : lpm @name("src_addr");
         }
         actions = {
             act_drop();
@@ -48,7 +48,7 @@ control ctl_filter_source_ipv6(
     
     table tbl_filter_source_ipv6 {
         key = {
-            hdr.ipv6.src_addr : lpm;
+            hdr.ipv6.src_addr : lpm @name("src_addr");
         }
         actions = {
             act_drop();

@@ -166,13 +166,29 @@ class Bfrt:
         for name, loc in tables.items():
             self.register_table(name, loc)
 
-        for data, key in self.Tables.port_str_info.entry_get_iterator(None):
-            dev_port = data.to_dict()['$DEV_PORT']
-            res = self.Tables.port.entry_get(
-                [{ 'name': '$DEV_PORT', 'value': dev_port }],
-                [ { 'name': '$PORT_NAME' }, { 'name': '$IS_VALID' } ])
-            if res is not None:
-                self.valid_ports[res['$PORT_NAME']] = True
+        ## In 9.1.0, the "internal" tables can't be traversed by using
+        ## "None" as the key to entry_get(), as normal P4 tables can
+        ## (at least not in a reliable manner). The following logic
+        ## finds all "active" interfaces by looking up the the
+        ## port-to-physical-port mapping in the "port_str_info"
+        ## table. This is specific to the WEDGE100-32X (note that port
+        ## 33 is used for the 10G CPU ports on this model).
+        ##
+        ## "active" in this context means that the port has been added
+        ## to the internal table called "port", either by a previous
+        ## instance of this script or by issuing a "port-add" command
+        ## on the ucli command line.
+        for conn in range(1, 34):
+            for chan in range(0,4):
+                port = "{0:d}/{1:d}".format(conn, chan)
+                res = self.Tables.port_str_info.entry_get([ { 'name': '$PORT_NAME', 'value': port } ])
+                if res is not None:
+                    dev_port = res['$DEV_PORT']
+                    res = self.Tables.port.entry_get(
+                        [{ 'name': '$DEV_PORT', 'value': dev_port }],
+                        [ { 'name': '$PORT_NAME' }, { 'name': '$IS_VALID' } ])
+                    if res is not None:
+                        self.valid_ports[res['$PORT_NAME']] = True
             
     ## Pseudo class to let us refer to tables via
     ## attributes
@@ -597,6 +613,10 @@ class Config:
             t.port.entry_del([ { 'name': '$DEV_PORT', 'value': dev_port } ])
 
         self._indent_down()
+
+## Make outputs unbuffered for logging purposes
+sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
+sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 0)
 
 bfrt = Bfrt("packet_broker", tables)
 config = Config(bfrt, config_dir)

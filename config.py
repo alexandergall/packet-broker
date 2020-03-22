@@ -134,6 +134,16 @@ class Config:
     def _indent_down(self):
         self.indent_level -= 1
 
+    def _get_dev_port(self, port):
+        info = self.bfrt.Tables.port_str_info.entry_get(
+            [{ 'name': '$PORT_NAME', 'value': port }])
+        assert(info is not None)
+        return info['$DEV_PORT']
+
+    def _format_port(self, port):
+        if re.match("^[0-9]+$", port):
+            return "physical port {0:d}".format(int(port))
+        return "{0:s} (physical port {1:d})". format(port, self._get_dev_port(port))
     def configure(self):
             if self.read():
                 try:
@@ -198,7 +208,7 @@ class Config:
             self._indent_up()
             self.groups[id] = []
             for port, dict in sorted(group['members'].items()):
-                self._indent("Port " + self.bfrt.format_port(port))
+                self._indent("Port " + self._format_port(port))
                 add_port(port, dict['config'])
                 self.groups[id].append(port)
             self._indent_down()
@@ -207,7 +217,7 @@ class Config:
         self._indent("Setting up ingress ports")
         self._indent_up()
         for port, dict in sorted(self.json['ports']['ingress'].items()):
-            self._indent("Port " + self.bfrt.format_port(port))
+            self._indent("Port " + self._format_port(port))
             add_port(port, dict['config'])
             egress_group = dict['egress-group']
             self.ingress[port] = {
@@ -221,7 +231,7 @@ class Config:
         self._indent("Setting up other ports")
         self._indent_up()
         for port, dict in sorted(self.json['ports']['other'].items()):
-            self._indent("Port " + self.bfrt.format_port(port))
+            self._indent("Port " + self._format_port(port))
             add_port(port, dict['config'])
         self._indent_down()
 
@@ -281,9 +291,9 @@ class Config:
             for feature, value in self.json['features'].items():
                 if feature == 'deflect-on-drop':
                     self._indent("Deflect-on-drop to port " +
-                                 self.bfrt.format_port(value))
+                                 self._format_port(value))
                     if not re.match("^[0-9]+$", value):
-                        value = self.bfrt.get_dev_port(value)
+                        value = self._get_dev_port(value)
                     self.features['deflect-on-drop'] = value
 
                 if feature == 'flow-mirror':
@@ -293,9 +303,9 @@ class Config:
 
                     port = cfg['port']
                     self._indent("Destination port " +
-                                 self.bfrt.format_port(port))
+                                 self._format_port(port))
                     if not re.match("^[0-9]+$", port):
-                        port = self.bfrt.get_dev_port(port)
+                        port = self._get_dev_port(port)
 
                     if 'max-packet-length' in cfg.keys():
                         max_pkt_len = cfg['max-packet-length']
@@ -319,8 +329,8 @@ class Config:
             self._indent_down()
 
     def push(self):
-        get_dev_port = self.bfrt.get_dev_port
-        format_port = self.bfrt.format_port
+        get_dev_port = self._get_dev_port
+        format_port = self._format_port
         t = self.bfrt.Tables
         
         self._indent("Programming tables")

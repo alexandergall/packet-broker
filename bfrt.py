@@ -121,14 +121,3 @@ class Bfrt:
 
     def register_table(self, name, loc):
         setattr(self.Tables, name, Table(self, name, loc))
-
-    def get_dev_port(self, port):
-        info = self.Tables.port_str_info.entry_get(
-            [{ 'name': '$PORT_NAME', 'value': port }])
-        assert(info is not None)
-        return info['$DEV_PORT']
-
-    def format_port(self, port):
-        if re.match("^[0-9]+$", port):
-            return "physical port {0:d}".format(int(port))
-        return "{0:s} (physical port {1:d})". format(port, self.get_dev_port(port))

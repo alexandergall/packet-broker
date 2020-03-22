@@ -16,15 +16,8 @@ LOG=/var/log/bf_switchd
 
 . /lib/lsb/init-functions
 
-## Must define ${BASE}
 test -f /etc/default/packet-broker
 source /etc/default/packet-broker
-
-SDE=${BASE}/bf-sde-9.1.0
-TOOLS=${BASE}/tools
-
-cd $SDE
-source $TOOLS/set_sde.bash
 
 RUN_SWITCHD=${SDE}/run_switchd.sh
 

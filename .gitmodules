@@ -1,0 +1,3 @@
+[submodule "snabb-snmp-subagent"]
+	path = snabb-snmp-subagent
+	url = https://github.com/alexandergall/snabb-snmp-subagent.git

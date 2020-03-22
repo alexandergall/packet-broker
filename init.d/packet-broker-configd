@@ -16,20 +16,10 @@ LOG=/var/log/packet-broker-configd
 
 . /lib/lsb/init-functions
 
-CONFIG_DIR=/etc/packet-broker
-IFMIBS_DIR=/var/run/packet-broker
-CONNECT_RETRIES=30
-## Must define ${BASE}
 test -f /etc/default/packet-broker
 source /etc/default/packet-broker
 
-SDE=${BASE}/bf-sde-9.1.0
-TOOLS=${BASE}/tools
-DAEMON=${BASE}/packet-broker/configd.py
-
-cd $SDE
-source $TOOLS/set_sde.bash
-
+DAEMON=${BASE}/configd.py
 test -x $DAEMON || exit 5
 
 PIDFILE=/var/run/pb-configd.pid

@@ -16,18 +16,16 @@ LOG=/var/log/if-snmp-agent
 
 . /lib/lsb/init-functions
 
-IFMIBS_DIR=/var/run/packet-broker
-## Must definde ${BASE}
 test -f /etc/default/packet-broker
 source /etc/default/packet-broker
 
 SUBAGENT=${BASE}/snabb-snmp-subagent/subagent
-DAEMON=${SUBAGENT}/bin/interface
-IFINDEX=${BASE}/packet-broker/ifindex/Wedge-100bf-32X
-MIBDIRS=${BASE}/packet-broker/mibs
+DAEMON="/usr/bin/perl ${SUBAGENT}/bin/interface"
+IFINDEX=${BASE}/ifindex/Wedge-100bf-32X
+MIBDIRS=${BASE}/mibs
 
-test -f $DAEMON || exit 5
-test -x $DAEMON || chmod a+x $DAEMON
+#test -f $DAEMON || exit 5
+#test -x $DAEMON || chmod a+x $DAEMON
 
 PIDFILE=/var/run/if_snmp_agent.pid
 

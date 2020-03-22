@@ -1,4 +1,6 @@
-BASE=/home/gall
+BASE=/home/gall/packet-broker
 CONFIG_DIR=/etc/packet-broker
 IFMIBS_DIR=/var/run/packet-broker
+export SDE=/home/gall/bf-sde-9.1.0
+export SDE_INSTALL=${SDE}/install
 CONNECT_RETRIES=30

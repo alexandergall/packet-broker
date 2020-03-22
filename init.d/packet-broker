@@ -16,7 +16,10 @@ LOG=/var/log/bf_switchd
 
 . /lib/lsb/init-functions
 
-BASE=/home/gall
+## Must define ${BASE}
+test -f /etc/default/packet-broker
+source /etc/default/packet-broker
+
 SDE=${BASE}/bf-sde-9.1.0
 TOOLS=${BASE}/tools
 
@@ -35,6 +38,7 @@ case $1 in
         fi
 
         log_daemon_msg "Starting packet-broker server" "bf_switchd"
+        set +e
         start-stop-daemon --start --name bf_switchd \
                           --startas $RUN_SWITCHD --background --no-close \
                           -- -p packet_broker -- --background >>$LOG 2>&1

@@ -1,23 +1,12 @@
-#!/usr/bin/env python2
-import sys
 import os
-import signal
-import random
 import re
 import json
 import jsonschema
 import ipaddress
+import mib
 
-SDE = os.environ.get('SDE')
-SDE_INSTALL = os.environ.get('SDE_INSTALL', SDE + '/install')
-BF_RUNTIME_LIB = SDE_INSTALL + '/lib/python2.7/site-packages/tofino/'
-sys.path.append(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)),
-        './', BF_RUNTIME_LIB))
-import bfrt_grpc.client as gc
-
-config_dir = '/etc/packet-broker'
 MIRROR_SESSION_ID = 1
+
 ctls = {
     'vlan' : 'pipe.ig_ctl.ctl_push_or_rewrite_vlan',
     'forward' : 'pipe.ig_ctl.ctl_forward_packet',
@@ -33,8 +22,12 @@ tables = {
     ### Internal tables
     ## Keys: $DEV_PORT'
     'port': '$PORT', 
+    ## Keys: $DEV_PORT'
+    'port_stat': '$PORT_STAT',
     ## Keys: $PORT_NAME
     'port_str_info': '$PORT_STR_INFO', 
+    ## Keys: $CONN_ID, $CHNL_ID
+    'port_hdl_info': '$PORT_HDL_INFO',
     ## Keys: $sid
     'mirror_cfg': '$mirror.cfg',
     
@@ -67,104 +60,45 @@ tables = {
     'maybe_drop_fragment': ctls['maybe_drop_fragment'] + '.tbl_maybe_drop_fragment'
 }
 
-class Table:
+## Mappings of values of the $SPEED field in the
+## $PORT table to bps. Used in the ifMIB to set
+## the ifSpeed/ifHighSpeed elements.
+if_speed = {
+    'BF_SPEED_NONE':                         0,
+    'BF_SPEED_1G':                  1000000000,
+    'BF_SPEED_10G':                10000000000,
+    'BF_SPEED_25G':                25000000000,
+    'BF_SPEED_40G':                40000000000,
+    'BF_SPEED_40G_NB':             40000000000,
+    'BF_SPEED_40G_NON_BREAKABLE':  40000000000,
+    'BF_SPEED_50G':                50000000000,
+    'BF_SPEED_100G':              100000000000,
+    'BF_SPEED_200G':              200000000000,
+    'BF_SPEED_400G':              400000000000
+}
 
-    def __init__(self, bfrt, name, loc):
+class semantic_error(Exception):
+    def __init(self, expresssion, message):
+        self.expression = expresssion
+        self.message = message
+
+def json_load(name):
+    with open(name) as file:
+        parsed = json.load(file)
+    file.close()
+    return parsed
+
+class Config:
+    def __init__(self, bfrt, config_dir, ifmibs_dir):
         self.bfrt = bfrt
-        self.name = name
-        self.loc = loc
-        self.table = bfrt.info.table_get(loc)
-        ## Not used in the code. This dict contains the TableInfo
-        ## object for the table. It can be used to inspect the
-        ## properties, e.g. to find the names of all valid actions:
-        ## self.table_info.action_name_list_get()
-        self.table_info = bfrt.info.parsed_info.table_info_dict[loc]
+        self.config_dir = config_dir
+        self.ifmibs_dir = ifmibs_dir
+        self.json_mtime = 0
 
-    def _mk_key(self, keys):
-        if keys is not None:
-            return [ self.table.make_key(
-                map(lambda key: gc.KeyTuple(**key), keys)) ]
-        else:
-            return None
-
-    def _mk_data_tuple(self, data):
-        return map(lambda elt: gc.DataTuple(**elt), data)
-    
-    def _mk_action(self, name, data):
-        if name is not None:
-            return self.table.make_data(
-                self._mk_data_tuple(data),
-                name)
-        else:
-            return self.table.make_data(
-                self._mk_data_tuple(data))
-
-    ### For debugging
-    def dump(self):
-        from pprint import pprint
-        print("DUMP of table " + self.name)
-        for data, key in self.entry_get_iterator(None):
-            key = key.to_dict()
-            pprint(key)
-            data = data.to_dict()
-            pprint(data)
-        print("DUMP END")
-        
-    def clear(self):
-        self.table.entry_del(self.bfrt.target, None)
-
-    ### Look up a single key. Return the data dictionary of the
-    ### result or None if no entries match.
-    def entry_get(self, keys, data_fields = [], from_hw = False):
-        resp = self.entry_get_iterator(keys, data_fields, from_hw)
-        try:
-            data = next(resp)[0].to_dict()
-        except:
-            return None
-        return  data
-
-    ### Like entry_get(), but just return the iterable object of
-    ### results.
-    def entry_get_iterator(self, keys, data_fields = [], from_hw = False):
-        return self.table.entry_get(self.bfrt.target,
-                                    self._mk_key(keys),
-                                    { "from_hw": from_hw },
-                                    self.table.make_data(
-                                        self._mk_data_tuple(data_fields)))
-    
-    def entry_add(self, keys, action_name, action_data = []):
-        self.table.entry_add(self.bfrt.target,
-                             self._mk_key(keys),
-                             [ self._mk_action(action_name, action_data) ])
-
-    def entry_del(self, keys):
-        self.table.entry_del(self.bfrt.target, self._mk_key(keys))
-
-    def entry_mod(self, keys, action_name, action_data = []):
-        self.table.entry_mod(self.bfrt.target,
-                             self._mk_key(keys),
-                             [ self._mk_action(action_name, action_data) ])
-                             
-    def default_entry_set(self, action_name, action_data = []):
-        self.table.default_entry_set(self.bfrt.target,
-                                     self._mk_action(action_name, action_data))
-        
-    def default_entry_reset(self):
-        self.table.default_entry_reset(self.bfrt.target)
-        
-class Bfrt:
-
-    def __init__(self, program, tables, addr = 'localhost:50052',
-                 client_id = 0, device_id = 0, is_master = True):
-        self.intf = gc.ClientInterface(addr, client_id = client_id,
-                                       device_id = device_id, is_master = is_master)
-        self.intf.bind_pipeline_config(program)
-        self.target = gc.Target(device_id = device_id, pipe_id = 0xffff)
-        self.info = self.intf.bfrt_info_get()
-        self.valid_ports = {}
-        
         for name, loc in tables.items():
-            self.register_table(name, loc)
+            bfrt.register_table(name, loc)
+
+        self.old_ports = {}
 
         ## In 9.1.0, the "internal" tables can't be traversed by using
         ## "None" as the key to entry_get(), as normal P4 tables can
@@ -179,55 +113,17 @@ class Bfrt:
         ## instance of this script or by issuing a "port-add" command
         ## on the ucli command line.
         for conn in range(1, 34):
-            for chan in range(0,4):
-                port = "{0:d}/{1:d}".format(conn, chan)
-                res = self.Tables.port_str_info.entry_get([ { 'name': '$PORT_NAME', 'value': port } ])
+            for chnl in range(0,4):
+                res = bfrt.Tables.port_hdl_info.entry_get(
+                    [ { 'name': '$CONN_ID', 'value': conn },
+                      { 'name': '$CHNL_ID', 'value': chnl } ])
                 if res is not None:
                     dev_port = res['$DEV_PORT']
-                    res = self.Tables.port.entry_get(
+                    res = bfrt.Tables.port.entry_get(
                         [{ 'name': '$DEV_PORT', 'value': dev_port }],
                         [ { 'name': '$PORT_NAME' }, { 'name': '$IS_VALID' } ])
                     if res is not None:
-                        self.valid_ports[res['$PORT_NAME']] = True
-            
-    ## Pseudo class to let us refer to tables via
-    ## attributes
-    class Tables:
-        pass
-
-    def register_table(self, name, loc):
-        setattr(self.Tables, name, Table(self, name, loc))
-
-    def get_dev_port(self, port):
-        info = self.Tables.port_str_info.entry_get(
-            [{ 'name': '$PORT_NAME', 'value': port }])
-        assert(info is not None)
-        return info['$DEV_PORT']
-            
-    def format_port(self, port):
-        if re.match("^[0-9]+$", port):
-            return "physical port {0:d}".format(int(port))
-        return "{0:s} (physical port {1:d})".format(port, self.get_dev_port(port))
-
-
-class semantic_error(Exception):
-
-    def __init(self, expresssion, message):
-        self.expression = expresssion
-        self.message = message
-
-def json_load(name):
-    with open(name) as file:
-        parsed = json.load(file)
-    file.close()
-    return parsed
-
-class Config:
-
-    def __init__(self, bfrt, config_dir):
-        self.bfrt = bfrt
-        self.config_dir = config_dir
-        self.json_mtime = 0
+                        self.old_ports[res['$PORT_NAME']] = True
 
     def _indent(self, msg):
         print(' ' * self.indent_level * 4 + msg)
@@ -237,11 +133,6 @@ class Config:
         
     def _indent_down(self):
         self.indent_level -= 1
-
-    def _add_port(self, port, config):
-        if port in self.ports.keys():
-            raise semantic_error("port {0:s} already defined".format(port))
-        self.ports[port] = config
 
     def configure(self):
             if self.read():
@@ -291,6 +182,11 @@ class Config:
         }
         self.indent_level = 0
         
+        def add_port(port, config):
+            if port in self.ports.keys():
+                raise semantic_error("port {0:s} already defined".format(port))
+            self.ports[port] = config
+
         self._indent("Setting up egress port groups")
         self._indent_up()
         for group in self.json['ports']['egress']:
@@ -302,8 +198,8 @@ class Config:
             self._indent_up()
             self.groups[id] = []
             for port, dict in sorted(group['members'].items()):
-                self._indent("Port " + bfrt.format_port(port))
-                self._add_port(port, dict['config'])
+                self._indent("Port " + self.bfrt.format_port(port))
+                add_port(port, dict['config'])
                 self.groups[id].append(port)
             self._indent_down()
         self._indent_down()
@@ -311,8 +207,8 @@ class Config:
         self._indent("Setting up ingress ports")
         self._indent_up()
         for port, dict in sorted(self.json['ports']['ingress'].items()):
-            self._indent("Port " + bfrt.format_port(port))
-            self._add_port(port, dict['config'])
+            self._indent("Port " + self.bfrt.format_port(port))
+            add_port(port, dict['config'])
             egress_group = dict['egress-group']
             self.ingress[port] = {
                 'vlans' : dict['vlans'],
@@ -325,8 +221,8 @@ class Config:
         self._indent("Setting up other ports")
         self._indent_up()
         for port, dict in sorted(self.json['ports']['other'].items()):
-            self._indent("Port " + bfrt.format_port(port))
-            self._add_port(port, dict['config'])
+            self._indent("Port " + self.bfrt.format_port(port))
+            add_port(port, dict['config'])
         self._indent_down()
 
         if 'source-filter' in self.json.keys():
@@ -384,9 +280,10 @@ class Config:
     
             for feature, value in self.json['features'].items():
                 if feature == 'deflect-on-drop':
-                    self._indent("Deflect-on-drop to port " + bfrt.format_port(value))
+                    self._indent("Deflect-on-drop to port " +
+                                 self.bfrt.format_port(value))
                     if not re.match("^[0-9]+$", value):
-                        value = bfrt.get_dev_port(value)
+                        value = self.bfrt.get_dev_port(value)
                     self.features['deflect-on-drop'] = value
 
                 if feature == 'flow-mirror':
@@ -395,9 +292,10 @@ class Config:
                     cfg = value
 
                     port = cfg['port']
-                    self._indent("Destination port " + bfrt.format_port(port))
+                    self._indent("Destination port " +
+                                 self.bfrt.format_port(port))
                     if not re.match("^[0-9]+$", port):
-                        port = bfrt.get_dev_port(port)
+                        port = self.bfrt.get_dev_port(port)
 
                     if 'max-packet-length' in cfg.keys():
                         max_pkt_len = cfg['max-packet-length']
@@ -445,7 +343,7 @@ class Config:
                 t.port_groups.entry_add(
                     [ { 'name': '$ACTION_MEMBER_ID', 'value': member_id } ],
                     'act_send',
-                    [ { 'name': 'egress_port', 'val': get_dev_port(port) } ])
+                    [ { 'name': 'egress_port', 'val': dev_port } ])
                 member_id += 1
 
         self._indent("Adding action selector group #{0:d}".format(group))
@@ -454,8 +352,7 @@ class Config:
             None,
             [ { 'name': '$MAX_GROUP_SIZE', 'val': 8 },
               ## References action_member_ids from profile
-              { 'name': '$ACTION_MEMBER_ID',
-                'int_arr_val': member_list },
+              { 'name': '$ACTION_MEMBER_ID', 'int_arr_val': member_list },
               { 'name': '$ACTION_MEMBER_STATUS',
                 'bool_arr_val': [ True ] * len(member_list) } ])
         t.forward.entry_add([ { 'name': 'egress_group', 'value': group } ],
@@ -475,12 +372,13 @@ class Config:
                 [ { 'name': 'ingress_port', 'value': dev_port } ],
                 'act_output_group',
                 [ { 'name': 'group', 'val': egress_group } ])
-            
+
             if 'push' in vlans:
                 t.ingress_untagged.entry_add(
                     [ { 'name': 'ingress_port', 'value': dev_port } ],
                     'act_push_vlan',
                     [ { 'name': 'vid', 'val': vlans['push'] } ])
+
             if 'rewrite' in vlans:
                 for rule in vlans['rewrite']:
                     t.ingress_tagged.entry_add(
@@ -576,6 +474,13 @@ class Config:
         self._indent("Programming ports")
         self._indent_up()
 
+        self.ifmibs = {}
+        ## Remove all shared memory segments to get rid of left-overs
+        ## from previous runs
+        for root, dirs, files in os.walk(self.ifmibs_dir):
+            for file in files:
+                os.unlink(self.ifmibs_dir+'/'+file)
+
         for port, config in sorted(self.ports.items()):
             dev_port = get_dev_port(port)
             speed = config['speed']
@@ -586,14 +491,16 @@ class Config:
             self._indent_up()
             if 'description' in config.keys():
                 self._indent("Description: {0}".format(config['description']))
+            else:
+                config['description'] = ''
             self._indent("Speed: {0}".format(speed))
             self._indent("MTU  : {0}".format(mtu))
             self._indent("FEC  : {0}".format(fec))
             self._indent_down()
     
-            if port in bfrt.valid_ports.keys():
+            if port in self.old_ports.keys():
                 method = t.port.entry_mod
-                del bfrt.valid_ports[port]
+                del self.old_ports[port]
             else:
                 method = t.port.entry_add
             method([ { 'name': '$DEV_PORT', 'value': dev_port } ],
@@ -605,38 +512,28 @@ class Config:
                              [ { 'name': '$PORT_ENABLE', 'bool_val': True },
                                { 'name': '$RX_MTU', 'val': mtu },
                                { 'name': '$TX_MTU', 'val': mtu } ])
-            
-        for port in sorted(bfrt.valid_ports.keys()):
+
+            port_massaged = re.sub('/', '_', port)
+            self.ifmibs[dev_port] = mib.ifmib(self.ifmibs_dir+'/'+port_massaged,
+                                              { 'ifDescr': port,
+                                                'ifName': port.encode('ascii'),
+                                                'ifAlias': config['description'].encode('ascii'),
+                                                'ifMtu': mtu,
+                                                'speed': if_speed[speed] })
+
+        for port in sorted(self.old_ports.keys()):
             dev_port = get_dev_port(port)
             self._indent("Removing unsued port {0} (phys port {1})".
                          format(port, dev_port))
             t.port.entry_del([ { 'name': '$DEV_PORT', 'value': dev_port } ])
+        self.old_ports = { port: True for port in self.ports.keys() }
 
         self._indent_down()
 
-## Make outputs unbuffered for logging purposes
-sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
-sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 0)
-
-bfrt = Bfrt("packet_broker", tables)
-config = Config(bfrt, config_dir)
-config.configure()
-
-def sighup_handler(signal, frame):
-    print("Received SIGHUP")
-    config.configure()
-    
-signals = dict((getattr(signal, n), n) \
-               for n in dir(signal) if n.startswith('SIG') and '_' not in n )
-
-def exit_handler(signal, frame):
-    print("Received {}, exiting".format(signals[signal]))
-    bfrt.intf._tear_down_stream()
-    sys.exit(0)
-    
-signal.signal(signal.SIGHUP, sighup_handler)
-signal.signal(signal.SIGTERM, exit_handler)
-signal.signal(signal.SIGINT, exit_handler)
-
-while True:
-    signal.pause()
+    def update_stats(self):
+        for dev_port, ifTable in self.ifmibs.items():
+            port = self.bfrt.Tables.port.entry_get(
+                [ { 'name': '$DEV_PORT', 'value': dev_port } ])
+            stat = self.bfrt.Tables.port_stat.entry_get(
+                [ { 'name': '$DEV_PORT', 'value': dev_port } ])
+            ifTable.update(port, stat)

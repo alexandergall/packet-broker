@@ -1,0 +1,4 @@
+BASE=/home/gall
+CONFIG_DIR=/etc/packet-broker
+IFMIBS_DIR=/var/run/packet-broker
+CONNECT_RETRIES=30

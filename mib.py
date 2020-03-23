@@ -1,6 +1,6 @@
 import os, io, mmap, struct, time
 
-## Apparently, this is need to make super() work with python 2.7
+## Apparently, this is needed to make super() work with python 2.7
 __metaclass__ = type
 
 class SMIv2:
@@ -146,12 +146,12 @@ class ifmib(MIB):
         self.register('ifInOctets', 'Counter32', 0)
         self.register('ifInUcastPkts', 'Counter32', 0)
         self.register('ifInDiscards', 'Counter32', 0)
-        self.register('ifInErrors', 'Counter32', 0) # TBD
-        self.register('ifInUnknownProtos', 'Counter32', 0) # TBD
+        self.register('ifInErrors', 'Counter32', 0)
+        self.register('ifInUnknownProtos', 'Counter32', 0)
         self.register('ifOutOctets', 'Counter32', 0)
         self.register('ifOutUcastPkts', 'Counter32', 0)
         self.register('ifOutDiscards', 'Counter32', 0)
-        self.register('ifOutErrors', 'Counter32', 0) # TBD
+        self.register('ifOutErrors', 'Counter32', 0)
 
         self.register('ifInMulticastPkts', 'Counter32', 0)
         self.register('ifInBroadcastPkts', 'Counter32', 0)
@@ -195,7 +195,6 @@ class ifmib(MIB):
         self.set('ifInErrors', stat['$FrameswithanyError'])
         self.set('ifOutOctets', stat['$OctetsTransmittedwithouterror'])
         self.set('ifOutUcastPkts', stat['$FramesTransmittedOK'])
-        self.set('ifOutDiscards', 0) # TBD
         self.set('ifOutErrors', stat['$FramesTransmittedwithError'])
         self.set('ifInMulticastPkts', stat['$FramesReceivedwithMulticastAddresses'])
         self.set('ifInBroadcastPkts', stat['$FramesReceivedwithBroadcastAddresses'])
@@ -210,3 +209,7 @@ class ifmib(MIB):
         self.set('ifHCOutUcastPkts', stat['$FramesTransmittedOK'])
         self.set('ifHCOutMulticastPkts', stat['$FramesTransmittedMulticast'])
         self.set('ifHCOutBroadcastPkts', stat['$FramesTransmittedBroadcast'])
+
+        ### Not available from stats
+        #self.set('ifInUnknownProtos', 0)
+        #self.set('ifOutDiscards', 0)

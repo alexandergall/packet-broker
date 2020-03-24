@@ -1,4 +1,4 @@
-install: /etc/packet-broker/schema.json /etc/snmp/snmpd.conf
+install: /etc/packet-broker/schema.json /etc/snmp/snmpd.conf /etc/snmp/interface.conf
 	cd init.d && $(MAKE) install
 
 remove:
@@ -9,4 +9,7 @@ remove:
 	cp $< $@
 
 /etc/snmp/snmpd.conf: snmpd.conf
+	cp $< $@
+
+/etc/snmp/interface.conf: interface.conf
 	cp $< $@

@@ -294,7 +294,7 @@ class Config:
                                  self._format_port(value))
                     if not re.match("^[0-9]+$", value):
                         value = self._get_dev_port(value)
-                    self.features['deflect-on-drop'] = value
+                    self.features['deflect-on-drop'] = int(value)
 
                 if feature == 'flow-mirror':
                     self._indent("Flow mirror")
@@ -313,7 +313,7 @@ class Config:
                         max_pkt_len = 16384
                     self._indent("Maximum packet length {0:d}".format(max_pkt_len))
                     self.features['flow-mirror'] = {
-                        'port': port,
+                        'port': int(port),
                         'max_pkt_len': max_pkt_len
                     }
                     self._indent_down()

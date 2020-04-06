@@ -1,0 +1,233 @@
+---
+- hosts: wedges
+  remote_user: ansible
+  become: yes
+  tasks:
+    - name: Set DHCP
+      become: yes
+      blockinfile:
+        dest: /etc/network/interfaces
+        block: |
+          auto ma1
+          iface ma1 inet dhcp
+          
+    - name: Activate DHCP
+      shell: ifconfig ma1 down || true; ifup --force ma1
+      
+    - name: Remove NTP pool servers
+      lineinfile:
+        dest: /etc/ntp.conf
+        state: absent
+        regexp: ^pool
+        
+    - name: Add NTP server
+      blockinfile:
+        dest: /etc/ntp.conf
+        block: |
+          server ntp.net.switch.ch iburst
+          
+    - name: Set localtime
+      copy:
+        remote_src: yes
+        src: /usr/share/zoneinfo/Europe/Zurich
+        dest: /etc/localtime
+        
+    - name: Set timezone
+      shell: echo Europe/Zurich >/etc/timezone
+      
+    - name: Create group for Barefoot SDE
+      group:
+        name: bfsde
+        
+    - name: Create user for Barefoot SDE
+      user:
+        name: bfsde
+        group: bfsde
+        shell: /usr/bin/false
+        password: '!'
+        
+    - name: Install the Barefoot SDE
+      unarchive:
+        src: "{{ bf_sde_src_path }}/bf-sde/bf-sde-{{ bf_sde_version }}.tar"
+        dest: "{{ bf_sde_dst_path }}"
+        owner: bfsde
+        group: bfsde
+        mode: '0775'
+        creates: "{{ bf_sde_dst_path }}/bf-sde-{{ bf_sde_version }}"
+    
+    - name: Install the pre-built Barefoot SDE artefacts
+      unarchive:
+        src: "{{ bf_sde_src_path }}/bf-sde/bf-sde-{{ bf_sde_version }}-install.tar"
+        dest: "{{ bf_sde_dst_path }}/bf-sde-{{ bf_sde_version }}"
+        owner: bfsde
+        group: bfsde
+        mode: '0775'
+        creates: "{{ bf_sde_dst_path }}/bf-sde-{{ bf_sde_version }}/install"
+    
+    - name: Install the Barefoot SDE tools
+      unarchive:
+        src: "{{ bf_sde_src_path }}/bf-sde/ba-102-tools-2019-09-09.tar"
+        dest: "{{ bf_sde_dst_path }}"
+        owner: bfsde
+        group: bfsde
+        mode: '0775'
+        creates: "{{ bf_sde_dst_path }}/tools"
+    
+    - name: Copy Barefoot SDE dependencies
+      become: no
+      unarchive:
+        src: WedgeBF-32X/{{ bf_sde_version }}/Deb9.3127f40b3c4d9122ba09eb40326286e1710a13af/dependencies.tar.gz
+        dest: /tmp/
+        creates: /tmp/dependencies
+
+    - name: Patch dependencies install script
+      become: no
+      replace:
+        dest: /tmp/dependencies/install.sh
+        regexp: '^make'
+        replace: make -j8
+        
+    - name: Install Barefoot SDE dependencies (grab a coffe, this takes about 30 minutes)
+      shell:
+        cmd: ./install.sh && touch {{ bf_sde_src_path }}/.dependencies_installed
+        creates: "{{ bf_sde_dst_path }}/.dependencies_installed"
+        chdir: /tmp/dependencies
+    
+    - name: Create /data
+      file:
+        path: /data
+        state: directory
+        mode: '0777'
+        
+    - name: Install packet-broker software
+      become: no
+      git:
+        repo: https://gitlab+deploy-token-65:vQFnqMMrUy6K8Cwv4Hxq@gitlab-int.switch.ch/network/packet-broker.git
+        version: dfeff7bf1c
+        accept_hostkey: yes
+        dest: /data/packet-broker
+
+    ## This should be done automatically by the next copy
+    ## operation (trailing slash on /etc/packet-broker/),
+    ## but this doesn't seem to happen for remote_src
+    - name: Create packet broker config directory
+      file:
+        path: /etc/packet-broker
+        state: directory
+        
+    - name: Install packet broker JSON schema and initial config
+      with_items: [ schema.json, config.json ]
+      copy:
+        remote_src: yes
+        src: /data/packet-broker/{{ item }}
+        dest: /etc/packet-broker/
+
+    - name: Create packet broker service defaults
+      blockinfile:
+        dest: /etc/default/packet-broker
+        create: yes
+        block: |
+          BASE=/data/packet-broker
+          CONFIG_DIR=/etc/packet-broker
+          IFMIBS_DIR=/var/run/packet-broker
+          SDE_VERSION={{ bf_sde_version }}
+          export SDE={{ bf_sde_dst_path }}/bf-sde-${SDE_VERSION}
+          export SDE_INSTALL=${SDE}/install
+          CONNECT_RETRIES=30
+
+    - name: Create packet broker service
+      copy:
+        src: services/packet-broker
+        dest: /etc/init.d/
+        mode: '0755'
+
+    - name: Create packet broker configure service
+      copy:
+        src: services/packet-broker-configd
+        dest: /etc/init.d/
+        mode: '0755'
+
+    - name: Configure snmpd service
+      copy:
+        src: services/snmpd.conf
+        dest: /etc/snmp/
+
+    - name: Set snmpd options
+      blockinfile:
+        dest: /etc/default/snmpd
+        block:
+          SNMPDOPTS="${SNMPDOPTS} -I -ifTable"
+          
+    - name: Install SNMP agent
+      become: no
+      git:
+        repo: https://github.com/alexandergall/snabb-snmp-subagent.git
+        version: v4
+        dest: /data/snabb-snmp-subagent
+
+    - name: apt-get update
+      command: apt-get update
+      
+    - name: Install snmp subagent dependencies
+      with_items: [ libsnmp-perl, libnet-snmp-perl, libsys-mmap-perl ]
+      apt:
+        name: "{{ item }}"
+        state: present
+
+    - name: Add snmp subagent interface.conf
+      copy:
+        src: services/interface.conf
+        dest: /etc/snmp/
+        
+    - name: Create snmp subagent service
+      copy:
+        src: services/if-snmp-agent
+        dest: /etc/init.d/
+        mode: '0755'
+
+    - name: (Re)start services
+      with_items:
+        - { name: ntp, state: started }
+        - { name: packet-broker, state: started }
+        - { name: packet-broker-configd, state: started }
+        - { name: snmpd, state: restarted }
+        - { name: if-snmp-agent, state: started }
+      service:
+        name: "{{ item.name }}"
+        state: "{{ item.state }}"
+      
+    - name: Set Barefoot SDE environment in /etc/profile
+      blockinfile:
+        dest: /etc/profile
+        block: |
+          export SDE={{ bf_sde_dst_path }}/bf-sde-{{ bf_sde_version }}
+          export SDE_INSTALL=${SDE}/install
+          PATH=${SDE_INSTALL}/bin:${PATH}
+
+    - name: Allow 'sudo' group to have passwordless sudo
+      lineinfile:
+        dest: /etc/sudoers
+        state: present
+        regexp: '^%sudo'
+        line: '%sudo ALL=(ALL) NOPASSWD: ALL'
+        validate: 'visudo -cf %s'
+                          
+    - name: Create users
+      with_items:
+        - { name: gall, comment: "Alexander Gall" }
+      user:
+        name: "{{ item.name }}"
+        comment: "{{ item.comment }}"
+        groups: sudo
+        shell: /bin/bash
+
+    - name: Add ssh keys
+      with_items:
+        - { user: gall,
+        key:
+          ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCravbHR+YSsvUcmiTBCm+1KbCcHOTALfAZElm/XRpgda5j3aZJLELUgwtzdz67LCjGfjqzNlw8amUfnYyhtO2AWdwGWrusH2vaG3Uh+5aemI3KLRWubmiOQra3U51/9uMjYaAgKSA5tBJpim1NWFqpGLsEVtELPfnS6BahAms21ncipW9ZNyU2n1+9Hj9F+PquivYFncgfmdWnyuKCA/j/LymDrUrAhIBq1JmqH4xXwnBC88+2jN9l11x1eJ6sapJxKkTbE6Yd4XCJ7V2FkFjsGLx+zx+8somXWKOnZZ3tqTZlDNbRpsoy7nAbh1W/b35KfMOSuNmhfg3bfPBT+65f17UIL2Ys5SfkinLAFIEn/mN5HRKAaiRBnzpSuvlJpBspIaebo8U5UF5ftW+0WgM9PxRvPcRFaEcGIJsFs892078JI/RNOzTNc/Jso4Md5GwbaIMNh9oI0Iq27tvOfY1oaMeiFPHoBcEJHH37NZbl4QgFaO9ORC1AMClBYaAfmhmXYyFOrFw1DvHvKTWUg9RCGBbTO5gKspr7IMPTYL3DC/pNODM3O5efn4Yvolw7iiS+7s9O9ObvVLzMSJggFcFSWGGVrXl4qwY/wFzshATFKaRdkMiB5pW6QO5H0sjtY68fZYAeFUG6caMF6nVIiw4DWe+yJSNNtE/LV87VG9nIMw== gall@switch.ch }
+      authorized_key:
+        user: "{{ item.user }}"
+        key: "{{ item.key }}"
+        state: present
+          

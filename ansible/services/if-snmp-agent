@@ -31,6 +31,7 @@ PIDFILE=/var/run/if_snmp_agent.pid
 
 case $1 in
     start)
+        mkdir -p $IFMIBS_DIR
         log_daemon_msg "Starting interface SNMP subagent" "if-snmp-agent"
         export PERLLIB=${SUBAGENT}/lib MIBDIRS=${MIBDIRS}
         set +e

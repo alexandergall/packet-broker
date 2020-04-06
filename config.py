@@ -356,18 +356,18 @@ class Config:
                     [ { 'name': 'egress_port', 'val': dev_port } ])
                 member_id += 1
 
-        self._indent("Adding action selector group #{0:d}".format(group))
-        t.port_groups_sel.entry_add(
-            [ { 'name': '$SELECTOR_GROUP_ID', 'value': group } ],
-            None,
-            [ { 'name': '$MAX_GROUP_SIZE', 'val': 8 },
-              ## References action_member_ids from profile
-              { 'name': '$ACTION_MEMBER_ID', 'int_arr_val': member_list },
-              { 'name': '$ACTION_MEMBER_STATUS',
-                'bool_arr_val': [ True ] * len(member_list) } ])
-        t.forward.entry_add([ { 'name': 'egress_group', 'value': group } ],
-                            None,
-                            [ { 'name': '$SELECTOR_GROUP_ID', 'val': group } ])
+            self._indent("Adding action selector group #{0:d}".format(group))
+            t.port_groups_sel.entry_add(
+                [ { 'name': '$SELECTOR_GROUP_ID', 'value': group } ],
+                None,
+                [ { 'name': '$MAX_GROUP_SIZE', 'val': 8 },
+                  ## References action_member_ids from profile
+                  { 'name': '$ACTION_MEMBER_ID', 'int_arr_val': member_list },
+                  { 'name': '$ACTION_MEMBER_STATUS',
+                    'bool_arr_val': [ True ] * len(member_list) } ])
+            t.forward.entry_add([ { 'name': 'egress_group', 'value': group } ],
+                                None,
+                                [ { 'name': '$SELECTOR_GROUP_ID', 'val': group } ])
         
         t.select_output.clear()
         t.ingress_untagged.clear()

@@ -1,0 +1,23 @@
+{
+    "ports": {
+        "ingress": {
+        },
+        "egress": [
+        ],
+        "other": {
+        }
+    },
+    "source-filter": [
+    ],
+    "flow-mirror": [
+    ],
+    "features": {
+        "deflect-on-drop": "192",
+        "flow-mirror": {
+            "port": "33/0",
+            "max-packet-length": 0
+        },
+        "drop-non-initial-fragments": false,
+        "exclude-ports-from-hash": false
+    }
+}

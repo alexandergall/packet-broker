@@ -1,5 +1,7 @@
 [wedges]
 labwedge101
+labwedge102
+labwedge103
 
 [wedges:vars]
 ansible_ssh_user=ansible
@@ -7,3 +9,4 @@ ansible_ssh_private_key_file=./ansible_id_rsa
 bf_sde_src_path=../..
 bf_sde_dst_path=/home/bfsde
 bf_sde_version=9.1.0
+wedge_dependencies_path=../../WedgeBF-32X/{{ bf_sde_version }}/dependencies.tar.gz

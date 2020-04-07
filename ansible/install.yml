@@ -76,7 +76,7 @@
     - name: Copy Barefoot SDE dependencies
       become: no
       unarchive:
-        src: WedgeBF-32X/{{ bf_sde_version }}/Deb9.3127f40b3c4d9122ba09eb40326286e1710a13af/dependencies.tar.gz
+        src: "{{ wedge_dependencies_path }}"
         dest: /tmp/
         creates: /tmp/dependencies
 
@@ -89,7 +89,7 @@
         
     - name: Install Barefoot SDE dependencies (grab a coffe, this takes about 30 minutes)
       shell:
-        cmd: ./install.sh && touch {{ bf_sde_src_path }}/.dependencies_installed
+        cmd: ./install.sh && touch {{ bf_sde_dst_path }}/.dependencies_installed
         creates: "{{ bf_sde_dst_path }}/.dependencies_installed"
         chdir: /tmp/dependencies
     
@@ -215,6 +215,11 @@
     - name: Create users
       with_items:
         - { name: gall, comment: "Alexander Gall" }
+        - { name: leinen, comment: "Simon Leinen" }
+        - { name: welti, comment: "Chris Welti" }
+        - { name: schmid, comment: "Ulrich Schmid" }
+        - { name: mauchle, comment: "Fabian Mauchle" }
+
       user:
         name: "{{ item.name }}"
         comment: "{{ item.comment }}"
@@ -226,6 +231,18 @@
         - { user: gall,
         key:
           ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCravbHR+YSsvUcmiTBCm+1KbCcHOTALfAZElm/XRpgda5j3aZJLELUgwtzdz67LCjGfjqzNlw8amUfnYyhtO2AWdwGWrusH2vaG3Uh+5aemI3KLRWubmiOQra3U51/9uMjYaAgKSA5tBJpim1NWFqpGLsEVtELPfnS6BahAms21ncipW9ZNyU2n1+9Hj9F+PquivYFncgfmdWnyuKCA/j/LymDrUrAhIBq1JmqH4xXwnBC88+2jN9l11x1eJ6sapJxKkTbE6Yd4XCJ7V2FkFjsGLx+zx+8somXWKOnZZ3tqTZlDNbRpsoy7nAbh1W/b35KfMOSuNmhfg3bfPBT+65f17UIL2Ys5SfkinLAFIEn/mN5HRKAaiRBnzpSuvlJpBspIaebo8U5UF5ftW+0WgM9PxRvPcRFaEcGIJsFs892078JI/RNOzTNc/Jso4Md5GwbaIMNh9oI0Iq27tvOfY1oaMeiFPHoBcEJHH37NZbl4QgFaO9ORC1AMClBYaAfmhmXYyFOrFw1DvHvKTWUg9RCGBbTO5gKspr7IMPTYL3DC/pNODM3O5efn4Yvolw7iiS+7s9O9ObvVLzMSJggFcFSWGGVrXl4qwY/wFzshATFKaRdkMiB5pW6QO5H0sjtY68fZYAeFUG6caMF6nVIiw4DWe+yJSNNtE/LV87VG9nIMw== gall@switch.ch }
+        - { user: leinen,
+        key:
+          ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDKYviHb6GPnzfpS/rRBkv4oUVCFbqil29XRPLbxkYf4nO3O37TUp7WGrsCeB8cf8IUEEYry8Cx2rAzYRRHNTQ0yzluD69D+5O+7b0MCf0gmma9eygXD/W7r69Zt1GmHVzPLd4YLoPQ3Hn6HxVPZcxXh7eTq1ItQuBAbUaKUlpMWFRT9U/DVBBCaQjKf0SH9Ev9jGJA60cvgY497vlj86F5Y+npD7hhCJJaUdce+LI8FVYGwFX7jC/9A+hvEQYpcSjjg9ChGTC0MgkØ6Rl14vsbkBdI6HERvlolvZ2/Qw8i6lnXHqM7d5KkGXnTVI5hjwZDl4cg5N+UXMPa39jKnT5 leinen@macsl-10966.local }
+        - { user: welti,
+        key:
+          ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAIEA4ZBNhxuJ9mhP6fho+CkzzxQTnvzrsyCl2uk/SgW1uaMPhwZ0Nr2ImxukAVM4z5VaZdNkPceK1K6MnE9RBlrsF9STkuoespålCUB2vFya0mXGRhhXESQ5wqgsqpK1sEHFBliGY84xUlH92b1+TuD5gmgoqNz5e7EeisXoVCGG1E= welti@sleipnir }
+        - { user: schmid,
+        key:
+          ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCtfDCElyUpt/08ZjM6uq4OC4Gwvd5Q8+O3aCqtnJFHzJxGL8fo0Kpvx1+7iM6cQBSPnMpS++JRQqkGFCZO7QNV4pCndMEziOSxS0ouk4pAzHk5IDTi0tliNijpPmq7ifxE9RZS4y7ce7r7HIwfN/PJH2XMqVUbGPZ1iK9kVVR9rfI4ybFvidmYOwrbxAhsH6McDFqSqL5oGcvjw5vU7CJVAKksrzsaao/IScXK12ZHoKw3mdP/Hu/DyaG9E0ckTaXG9Zs6bdNKTfHduHFwHed24L5N/MVhRZ25Rezmj2A6A4q4Cv+sAPzScKWA3mIoeH81tPlHDZ0hFaPfo0zd/GPB schmid@xobeee }
+        - { user: mauchle,
+        key:
+          ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAp8b3fRzfiWAH6T0R22XUmu62JYkJHLIqvWPjT9CxPBpKiF76ElZZjL4ZCoLGAUtk3+DUadwsYZh8Qz9uhWp3FFYKbDQk9MM3Sca6PocwH8L2YGOO3S0EVbkDZf3GoFgf8E3qvHW3A8CdzK/0Å6UNO7ASfM+AGRjW¾+6iklPGbCSpGYdqePtfNHGVp0hruDVHBPMcOvH6MuOO8Vto9S58Z9FjG5ini2OYNOgxg8Bymg55RS9PVHsucp6dCS/tfRf5x52LVkfOH2UutwFDÅhWV+I481e4kCnuzzcqlPBuLb3tcptoRzWfcv5IHs9IgrZ8RSvdW8cbAPrS6yNAwcKw== mauchle@macfma.switch.ch }
       authorized_key:
         user: "{{ item.user }}"
         key: "{{ item.key }}"

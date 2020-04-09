@@ -97,9 +97,9 @@
         creates: "{{ bf_sde_dst_path }}/.dependencies_installed"
         chdir: /tmp/dependencies
     
-    - name: Create /data
+    - name: Create {{ software_dst_path }}
       file:
-        path: /data
+        path: "{{ software_dst_path }}"
         state: directory
         mode: '0777'
         
@@ -109,7 +109,7 @@
         repo: https://gitlab+deploy-token-65:vQFnqMMrUy6K8Cwv4Hxq@gitlab-int.switch.ch/network/packet-broker.git
         version: dfeff7bf1c
         accept_hostkey: yes
-        dest: /data/packet-broker
+        dest: "{{ software_dst_path }}/packet-broker"
 
     ## This should be done automatically by the next copy
     ## operation (trailing slash on /etc/packet-broker/),
@@ -123,7 +123,7 @@
       with_items: [ schema.json, config.json ]
       copy:
         remote_src: yes
-        src: /data/packet-broker/{{ item }}
+        src: "{{ software_dst_path }}/packet-broker/{{ item }}"
         dest: /etc/packet-broker/
 
     - name: Create packet broker service defaults
@@ -131,7 +131,7 @@
         dest: /etc/default/packet-broker
         create: yes
         block: |
-          BASE=/data/packet-broker
+          BASE={{ software_dst_path }}/packet-broker
           CONFIG_DIR=/etc/packet-broker
           IFMIBS_DIR=/var/run/packet-broker
           SDE_VERSION={{ bf_sde_version }}
@@ -167,7 +167,7 @@
       git:
         repo: https://github.com/alexandergall/snabb-snmp-subagent.git
         version: v4
-        dest: /data/snabb-snmp-subagent
+        dest: "{{ software_dst_path }}/snabb-snmp-subagent"
 
     - name: apt-get update
       command: apt-get update

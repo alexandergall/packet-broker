@@ -22,7 +22,6 @@ source /etc/default/packet-broker
 SUBAGENT=${BASE}/snabb-snmp-subagent/subagent
 DAEMON="/usr/bin/perl ${SUBAGENT}/bin/interface"
 IFINDEX=${BASE}/ifindex/Wedge-100bf-32X
-MIBDIRS=${BASE}/mibs
 
 #test -f $DAEMON || exit 5
 #test -x $DAEMON || chmod a+x $DAEMON
@@ -33,7 +32,7 @@ case $1 in
     start)
         mkdir -p $IFMIBS_DIR
         log_daemon_msg "Starting interface SNMP subagent" "if-snmp-agent"
-        export PERLLIB=${SUBAGENT}/lib MIBDIRS=${MIBDIRS}
+        export PERLLIB=${SUBAGENT}/lib
         set +e
         start-stop-daemon --start --make-pidfile --pidfile $PIDFILE \
                           --startas $DAEMON --background --no-close \

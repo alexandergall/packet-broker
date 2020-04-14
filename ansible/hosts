@@ -11,3 +11,4 @@ bf_sde_dst_path=/home/bfsde
 bf_sde_version=9.1.0
 wedge_dependencies_path=../../WedgeBF-32X/{{ bf_sde_version }}/dependencies.tar.gz
 software_dst_path=/opt
+debian_version=stretch

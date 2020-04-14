@@ -3,8 +3,11 @@
   remote_user: ansible
   become: yes
   tasks:
+    - name: Set hostname
+      hostname:
+        name: "{{ inventory_hostname }}"
+
     - name: Set DHCP
-      become: yes
       blockinfile:
         dest: /etc/network/interfaces
         block: |
@@ -29,16 +32,13 @@
         dest: /etc/ntp.conf
         block: |
           server ntp.net.switch.ch iburst
-          
-    - name: Set localtime
-      copy:
-        remote_src: yes
-        src: /usr/share/zoneinfo/Europe/Zurich
-        dest: /etc/localtime
-        
+
     - name: Set timezone
-      shell: echo Europe/Zurich >/etc/timezone
-      
+      shell:
+        cmd: |
+          timedatectl set-timezone 'Europe/Zurich'
+          dpkg-reconfigure --frontend noninteractive tzdata
+
     - name: Create group for Barefoot SDE
       group:
         name: bfsde
@@ -169,11 +169,18 @@
         version: v4
         dest: "{{ software_dst_path }}/snabb-snmp-subagent"
 
+    - name: Add Debian {{ debian_version }} non-free repo
+      copy:
+        content: |
+          deb http://mirror.init7.net/debian/ {{ debian_version }} main non-free
+          deb-src http://mirror.init7.net/debian/ {{ debian_version }} main non-free
+        dest: /etc/apt/sources.list.d/{{ debian_version }}-non-free.list
+
     - name: apt-get update
       command: apt-get update
       
     - name: Install snmp subagent dependencies
-      with_items: [ libsnmp-perl, libnet-snmp-perl, libsys-mmap-perl ]
+      with_items: [ libsnmp-perl, libnet-snmp-perl, libsys-mmap-perl, snmp-mibs-downloader ]
       apt:
         name: "{{ item }}"
         state: present

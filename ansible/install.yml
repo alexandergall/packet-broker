@@ -107,7 +107,7 @@
       become: no
       git:
         repo: https://gitlab+deploy-token-65:vQFnqMMrUy6K8Cwv4Hxq@gitlab-int.switch.ch/network/packet-broker.git
-        version: dfeff7bf1c
+        version: 59082a050
         accept_hostkey: yes
         dest: "{{ software_dst_path }}/packet-broker"
 
@@ -131,7 +131,7 @@
         dest: /etc/default/packet-broker
         create: yes
         block: |
-          BASE={{ software_dst_path }}/packet-broker
+          BASE={{ software_dst_path }}
           CONFIG_DIR=/etc/packet-broker
           IFMIBS_DIR=/var/run/packet-broker
           SDE_VERSION={{ bf_sde_version }}

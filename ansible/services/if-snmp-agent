@@ -21,10 +21,7 @@ source /etc/default/packet-broker
 
 SUBAGENT=${BASE}/snabb-snmp-subagent/subagent
 DAEMON="/usr/bin/perl ${SUBAGENT}/bin/interface"
-IFINDEX=${BASE}/ifindex/Wedge-100bf-32X
-
-#test -f $DAEMON || exit 5
-#test -x $DAEMON || chmod a+x $DAEMON
+IFINDEX=${BASE}/packet-broker/ifindex/Wedge-100bf-32X
 
 PIDFILE=/var/run/if_snmp_agent.pid
 

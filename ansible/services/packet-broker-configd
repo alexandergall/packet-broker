@@ -19,7 +19,7 @@ LOG=/var/log/packet-broker-configd
 test -f /etc/default/packet-broker
 source /etc/default/packet-broker
 
-DAEMON=${BASE}/configd.py
+DAEMON=${BASE}/packet-broker/configd.py
 test -x $DAEMON || exit 5
 
 PIDFILE=/var/run/pb-configd.pid

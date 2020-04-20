@@ -565,23 +565,22 @@ class Config:
 
     def update_stats(self):
         for dev_port, ifTable in self.ifmibs.items():
-            port = self.bfrt.Tables.port.entry_get(
+            port_t = self.bfrt.Tables.port.entry_get(
                 [ { 'name': '$DEV_PORT', 'value': dev_port } ])
-            stat = self.bfrt.Tables.port_stat.entry_get(
+            stat_t = self.bfrt.Tables.port_stat.entry_get(
                 [ { 'name': '$DEV_PORT', 'value': dev_port } ])
-            old_oper_status, new_oper_status = ifTable.update(port, stat)
+            old_oper_status, new_oper_status = ifTable.update(port_t, stat_t)
+            port = port_t['$PORT_NAME']
             if old_oper_status != new_oper_status:
-                port = port['$PORT_NAME']
                 state_str = 'up' if new_oper_status == 1 else 'down'
                 print("port {0} operational status changed to {1}".
                       format(port, state_str))
 
-                for group, members in self.groups.items():
-                    if port in members.keys():
-                        members = self.groups[group]
-                        members[port]['status'] = True if state_str == "up" else False
+            for group, members in self.groups.items():
+                if port in members.keys():
+                    if members[port]['status'] != port_t['$PORT_UP']:
+                        members[port]['status'] = port_t['$PORT_UP']
                         self._set_action_selector(self.bfrt.Tables.port_groups_sel.entry_mod,
                                                   group, members)
                         print("egress group {0} status of member port {1} changed to {2}".
-                              format(group, port, state_str))
-                        break
+                              format(group, port, 'up' if port_t['$PORT_UP'] else 'down'))

@@ -94,11 +94,17 @@ class Config:
         self.config_dir = config_dir
         self.ifmibs_dir = ifmibs_dir
         self.json_mtime = 0
+        self.indent_level = 0
 
         for name, loc in tables.items():
             bfrt.register_table(name, loc)
 
-        self.old_ports = {}
+        ## Remove all shared memory segments to get rid of left-overs
+        ## from previous runs
+        for root, dirs, files in os.walk(self.ifmibs_dir):
+            for file in files:
+                os.unlink(self.ifmibs_dir+'/'+file)
+        self.ifmibs = {}
 
         ## In 9.1.0, the "internal" tables can't be traversed by using
         ## "None" as the key to entry_get(), as normal P4 tables can
@@ -112,6 +118,8 @@ class Config:
         ## to the internal table called "port", either by a previous
         ## instance of this script or by issuing a "port-add" command
         ## on the ucli command line.
+        self.ports = {}
+        self._indent("Registering active interfaces")
         for conn in range(1, 34):
             for chnl in range(0,4):
                 res = bfrt.Tables.port_hdl_info.entry_get(
@@ -119,11 +127,31 @@ class Config:
                       { 'name': '$CHNL_ID', 'value': chnl } ])
                 if res is not None:
                     dev_port = res['$DEV_PORT']
+                    ## Every entry in the table has the field
+                    ## '$PORT_NAME' but only the active ports have any
+                    ## other fields.  We use this to determine which
+                    ## ports are active by looking for an arbitrary
+                    ## field.  This will cause bf_switchd to log an
+                    ## error for each non-active entry.
                     res = bfrt.Tables.port.entry_get(
                         [{ 'name': '$DEV_PORT', 'value': dev_port }],
                         [ { 'name': '$PORT_NAME' }, { 'name': '$IS_VALID' } ])
                     if res is not None:
-                        self.old_ports[res['$PORT_NAME']] = True
+                        ## Now that we know the port is active, fetch
+                        ## all fields.
+                        self._indent_up()
+                        port = bfrt.Tables.port.entry_get(
+                            [{ 'name': '$DEV_PORT', 'value': dev_port }])
+                        name = port['$PORT_NAME']
+                        self._indent("Port {0}".format(self._format_port(name)))
+                        self.ports[name] = {
+                            'description': None,
+                            'speed': port['$SPEED'],
+                            'mtu': port['$RX_MTU'],
+                            'fec': port['$FEC'],
+                            'shutdown': not port['$PORT_ENABLE']
+                        }
+                        self._indent_down()
 
     def _indent(self, msg):
         print(' ' * self.indent_level * 4 + msg)
@@ -181,7 +209,6 @@ class Config:
             return False
         
     def parse(self):
-        self.ports = {}
         self.groups = {}
         self.ingress = {}
         self.source_filter = []
@@ -190,12 +217,19 @@ class Config:
             'drop-non-initial-fragments': False,
             'exclude-ports-from-hash': False
         }
-        self.indent_level = 0
+        self.old_ports = self.ports
+        self.ports = {}
         
         def add_port(port, config):
             if port in self.ports.keys():
                 raise semantic_error("port {0:s} already defined".format(port))
-            self.ports[port] = config
+            full_config = {
+                'description': None,
+                'fec': 'BF_FEC_TYP_NONE',
+                'shutdown': False
+            }
+            full_config.update(config)
+            self.ports[port] = full_config
 
         self._indent("Setting up egress port groups")
         self._indent_up()
@@ -206,11 +240,11 @@ class Config:
             
             self._indent("Group {0:d}".format(id))
             self._indent_up()
-            self.groups[id] = []
+            self.groups[id] = {}
             for port, dict in sorted(group['members'].items()):
                 self._indent("Port " + self._format_port(port))
                 add_port(port, dict['config'])
-                self.groups[id].append(port)
+                self.groups[id][port] = {}
             self._indent_down()
         self._indent_down()
 
@@ -328,6 +362,18 @@ class Config:
 
             self._indent_down()
 
+    def _set_action_selector(self, method, group, members):
+        id = [ member['id'] for member in members.values() ]
+        status = [ member['status'] for member in members.values() ]
+        method(
+            [ { 'name': '$SELECTOR_GROUP_ID', 'value': group } ],
+            None,
+            [ { 'name': '$MAX_GROUP_SIZE', 'val': 8 },
+              ## References action_member_ids from profile
+              { 'name': '$ACTION_MEMBER_ID', 'int_arr_val': id },
+              { 'name': '$ACTION_MEMBER_STATUS',
+                'bool_arr_val': status } ])
+
     def push(self):
         get_dev_port = self._get_dev_port
         format_port = self._format_port
@@ -343,10 +389,12 @@ class Config:
         t.port_groups.clear()
         
         member_id = 1
-        for group, ports in self.groups.items():
+        for group, members in self.groups.items():
             member_list = []
-            for port in ports:
+            for port, member in members.items():
                 dev_port = get_dev_port(port)
+                member['id'] = member_id
+                member['status'] = False
                 self._indent("Adding action profile member {0:d} port {1:s}".
                        format(member_id, format_port(port)))
                 member_list.append(member_id)
@@ -357,18 +405,11 @@ class Config:
                 member_id += 1
 
             self._indent("Adding action selector group #{0:d}".format(group))
-            t.port_groups_sel.entry_add(
-                [ { 'name': '$SELECTOR_GROUP_ID', 'value': group } ],
-                None,
-                [ { 'name': '$MAX_GROUP_SIZE', 'val': 8 },
-                  ## References action_member_ids from profile
-                  { 'name': '$ACTION_MEMBER_ID', 'int_arr_val': member_list },
-                  { 'name': '$ACTION_MEMBER_STATUS',
-                    'bool_arr_val': [ True ] * len(member_list) } ])
+            self._set_action_selector(t.port_groups_sel.entry_add, group, members)
             t.forward.entry_add([ { 'name': 'egress_group', 'value': group } ],
                                 None,
                                 [ { 'name': '$SELECTOR_GROUP_ID', 'val': group } ])
-        
+
         t.select_output.clear()
         t.ingress_untagged.clear()
         t.ingress_tagged.clear()
@@ -481,64 +522,46 @@ class Config:
 
         self._indent_down()
             
-        self._indent("Programming ports")
-        self._indent_up()
-
-        self.ifmibs = {}
-        ## Remove all shared memory segments to get rid of left-overs
-        ## from previous runs
-        for root, dirs, files in os.walk(self.ifmibs_dir):
-            for file in files:
-                os.unlink(self.ifmibs_dir+'/'+file)
-
         for port, config in sorted(self.ports.items()):
             dev_port = get_dev_port(port)
-            speed = config['speed']
-            mtu = config['mtu']
-            fec = config.get('fec', "BF_FEC_TYP_NONE")
 
-            self._indent("Port " + format_port(port))
-            self._indent_up()
-            if 'description' in config.keys():
-                self._indent("Description: {0}".format(config['description']))
-            else:
-                config['description'] = ''
-            self._indent("Speed: {0}".format(speed))
-            self._indent("MTU  : {0}".format(mtu))
-            self._indent("FEC  : {0}".format(fec))
-            self._indent_down()
-    
             if port in self.old_ports.keys():
-                method = t.port.entry_mod
+                if self.old_ports[port] == config:
+                    method = None
+                else:
+                    method = t.port.entry_mod
+                    if self.old_ports[port]['shutdown'] != config['shutdown']:
+                        print("port {0} administrative status changed to {1}".
+                              format(port, 'down' if config['shutdown'] else 'up'))
                 del self.old_ports[port]
             else:
                 method = t.port.entry_add
-            method([ { 'name': '$DEV_PORT', 'value': dev_port } ],
-                   None,
-                   [ { 'name': '$SPEED', 'str_val': speed.encode('ascii') },
-                     { 'name': '$FEC', 'str_val':  fec.encode('ascii') } ])
-            t.port.entry_mod([ { 'name': '$DEV_PORT', 'value': dev_port } ],
-                             None,
-                             [ { 'name': '$PORT_ENABLE', 'bool_val': True },
-                               { 'name': '$RX_MTU', 'val': mtu },
-                               { 'name': '$TX_MTU', 'val': mtu } ])
+            if method is not None:
+                method([ { 'name': '$DEV_PORT', 'value': dev_port } ],
+                       None,
+                       [ { 'name': '$SPEED', 'str_val': config['speed'].encode('ascii') },
+                         { 'name': '$FEC', 'str_val':  config['fec'].encode('ascii') },
+                         { 'name': '$PORT_ENABLE', 'bool_val': not config['shutdown'] },
+                         { 'name': '$RX_MTU', 'val': config['mtu'] },
+                         { 'name': '$TX_MTU', 'val': config['mtu'] } ])
 
-            port_massaged = re.sub('/', '_', port)
-            self.ifmibs[dev_port] = mib.ifmib(self.ifmibs_dir+'/'+port_massaged,
-                                              { 'ifDescr': port,
-                                                'ifName': port.encode('ascii'),
-                                                'ifAlias': config['description'].encode('ascii'),
-                                                'ifMtu': mtu,
-                                                'speed': if_speed[speed] })
+                if dev_port not in self.ifmibs.keys():
+                    self.ifmibs[dev_port] = mib.ifmib(self.ifmibs_dir+'/'+re.sub('/', '_', port))
+                self.ifmibs[dev_port].set_properties(
+                    { 'ifDescr': port,
+                      'ifName': port.encode('ascii'),
+                      'ifAlias': config['description'].encode('ascii'),
+                      'ifMtu': config['mtu'],
+                      'speed': if_speed[config['speed']] }
+                )
 
         for port in sorted(self.old_ports.keys()):
             dev_port = get_dev_port(port)
-            self._indent("Removing unsued port {0} (phys port {1})".
+            self._indent("Removing port {0} (phys port {1})".
                          format(port, dev_port))
             t.port.entry_del([ { 'name': '$DEV_PORT', 'value': dev_port } ])
-        self.old_ports = { port: True for port in self.ports.keys() }
-
-        self._indent_down()
+            self.ifmibs[dev_port].delete()
+            self.ifmibs.pop(dev_port, None)
 
     def update_stats(self):
         for dev_port, ifTable in self.ifmibs.items():
@@ -546,4 +569,19 @@ class Config:
                 [ { 'name': '$DEV_PORT', 'value': dev_port } ])
             stat = self.bfrt.Tables.port_stat.entry_get(
                 [ { 'name': '$DEV_PORT', 'value': dev_port } ])
-            ifTable.update(port, stat)
+            old_oper_status, new_oper_status = ifTable.update(port, stat)
+            if old_oper_status != new_oper_status:
+                port = port['$PORT_NAME']
+                state_str = 'up' if new_oper_status == 1 else 'down'
+                print("port {0} operational status changed to {1}".
+                      format(port, state_str))
+
+                for group, members in self.groups.items():
+                    if port in members.keys():
+                        members = self.groups[group]
+                        members[port]['status'] = True if state_str == "up" else False
+                        self._set_action_selector(self.bfrt.Tables.port_groups_sel.entry_mod,
+                                                  group, members)
+                        print("egress group {0} status of member port {1} changed to {2}".
+                              format(group, port, state_str))
+                        break

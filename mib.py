@@ -75,6 +75,7 @@ types = {
 class MIB:
     def __init__(self, file):
         index_file = file + ".index"
+        self.file = file
         self.data_f = io.open(file, "w+b", buffering=0)
         self.index_f = io.open(index_file, "w")
         self.index_f.write(u'MIB:1\n')
@@ -120,23 +121,15 @@ class MIB:
         return self.objects[name].get()
 
 class ifmib(MIB):
-    def __init__(self, file, properties):
+    def __init__(self, file):
         super(ifmib, self).__init__(file)
-        p = properties
-        self.register('ifDescr', 'OctetStr', p['ifDescr'].encode('ascii'),
-                      octet_str_len = 255)
-        self.register('ifName', 'OctetStr', p['ifName'], octet_str_len = 255)
-        self.register('ifAlias', 'OctetStr', p['ifAlias'],
-                      octet_str_len = 64 ) # interface description
+        self.register('ifDescr', 'OctetStr', octet_str_len = 255)
+        self.register('ifName', 'OctetStr', octet_str_len = 255)
+        self.register('ifAlias', 'OctetStr', octet_str_len = 64 ) # interface description
         self.register('ifType', 'Integer32', 6 ) # ethernetCsmacd
-        self.register('ifMtu', 'Integer32', p['ifMtu'])
-
-        if p['speed'] > 1000000000:
-            self.register('ifSpeed', 'Gauge32', 4294967295) # RFC3635 sec. 3.2.8
-        else:
-            self.register('ifSpeed', 'Gauge32', p['speed'])
-        self.register('ifHighSpeed', 'Gauge32', p['speed'] / 1000000)
-
+        self.register('ifMtu', 'Integer32')
+        self.register('ifSpeed', 'Gauge32')
+        self.register('ifHighSpeed', 'Gauge32')
         self.register('ifPhysAddress', 'OctetStr', octet_str_len = 0)
         self.register('ifAdminStatus', 'Integer32', 2) # down
         self.register('ifOperStatus', 'Integer32', 2) # down
@@ -174,18 +167,35 @@ class ifmib(MIB):
         ## this platform (interfaces indices are fixed)
         self.register('_X_ifCounterDiscontinuityTime', 'Counter64', 0)
 
+    def set_properties(self, properties):
+        p = properties
+        self.set('ifDescr', p['ifDescr'].encode('ascii'))
+        self.set('ifName', p['ifName'])
+        self.set('ifAlias', p['ifAlias'])
+        self.set('ifMtu', p['ifMtu'])
+        if p['speed'] > 1000000000:
+            self.set('ifSpeed', 4294967295) # RFC3635 sec. 3.2.8
+        else:
+            self.set('ifSpeed', p['speed'])
+        self.set('ifHighSpeed', p['speed'] / 1000000)
+
+    def delete(self):
+        self.data_f.close()
+        self.index_f.close()
+        os.unlink(self.file)
+        os.unlink(self.file + ".index")
+
     def update(self, port, stat):
         if port['$PORT_ENABLE']:
             self.set('ifAdminStatus', 1) # up
         else:
             self.set('ifAdminStatus', 2) # down
-        old_oper_state = self.get('ifOperStatus')
+        old_oper_status = self.get('ifOperStatus')
         if port['$PORT_UP']:
-            new_oper_state = 1 # up
+            self.set('ifOperStatus', 1) # up
         else:
-            new_oper_state = 2 # down
-        self.set('ifOperStatus', new_oper_state)
-        if old_oper_state != new_oper_state:
+            self.set('ifOperStatus', 2) # down
+        if old_oper_status != self.get('ifOperStatus'):
             self.set('ifLastChange', 0)
             self.set('_X_ifLastChange_TicksBase', int(time.time()))
 
@@ -213,3 +223,5 @@ class ifmib(MIB):
         ### Not available from stats
         #self.set('ifInUnknownProtos', 0)
         #self.set('ifOutDiscards', 0)
+
+        return old_oper_status, self.get('ifOperStatus')

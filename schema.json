@@ -41,6 +41,10 @@
                     "type": "integer",
                     "minimum": 1200,
                     "maximum": 10240
+                },
+
+                "shutdown": {
+                    "type": "boolean"
                 }
             },
             "additionalProperties": false

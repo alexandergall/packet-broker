@@ -390,14 +390,12 @@ class Config:
         
         member_id = 1
         for group, members in self.groups.items():
-            member_list = []
             for port, member in members.items():
                 dev_port = get_dev_port(port)
                 member['id'] = member_id
                 member['status'] = False
                 self._indent("Adding action profile member {0:d} port {1:s}".
                        format(member_id, format_port(port)))
-                member_list.append(member_id)
                 t.port_groups.entry_add(
                     [ { 'name': '$ACTION_MEMBER_ID', 'value': member_id } ],
                     'act_send',
@@ -564,6 +562,7 @@ class Config:
             self.ifmibs.pop(dev_port, None)
 
     def update_stats(self):
+        status = {}
         for dev_port, ifTable in self.ifmibs.items():
             port_t = self.bfrt.Tables.port.entry_get(
                 [ { 'name': '$DEV_PORT', 'value': dev_port } ])
@@ -571,16 +570,20 @@ class Config:
                 [ { 'name': '$DEV_PORT', 'value': dev_port } ])
             old_oper_status, new_oper_status = ifTable.update(port_t, stat_t)
             port = port_t['$PORT_NAME']
+            status[port] = port_t['$PORT_UP']
             if old_oper_status != new_oper_status:
                 state_str = 'up' if new_oper_status == 1 else 'down'
                 print("port {0} operational status changed to {1}".
                       format(port, state_str))
 
-            for group, members in self.groups.items():
-                if port in members.keys():
-                    if members[port]['status'] != port_t['$PORT_UP']:
-                        members[port]['status'] = port_t['$PORT_UP']
-                        self._set_action_selector(self.bfrt.Tables.port_groups_sel.entry_mod,
-                                                  group, members)
-                        print("egress group {0} status of member port {1} changed to {2}".
-                              format(group, port, 'up' if port_t['$PORT_UP'] else 'down'))
+        for group, members in self.groups.items():
+            update = False
+            for port, member in members.items():
+                if member['status'] != status[port]:
+                   member['status'] = status[port]
+                   print("egress group {0} status of member port {1} changed to {2}".
+                         format(group, port, 'up' if status[port] else 'down'))
+                   update = True
+            if update:
+                   self._set_action_selector(self.bfrt.Tables.port_groups_sel.entry_mod,
+                                             group, members)

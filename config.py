@@ -211,6 +211,7 @@ class Config:
         
     def parse(self):
         self.groups = {}
+        self.groups_ref = {}
         self.ingress = {}
         self.source_filter = []
         self.flow_mirror = []
@@ -391,6 +392,9 @@ class Config:
         
         member_id = 1
         for group, members in self.groups.items():
+            ## Group is not referenced from
+            ## the forwarding table
+            self.groups_ref[group] = False
             for port, member in members.items():
                 dev_port = get_dev_port(port)
                 member['id'] = member_id
@@ -405,9 +409,6 @@ class Config:
 
             self._indent("Adding action selector group #{0:d}".format(group))
             self._set_action_selector(t.port_groups_sel.entry_add, group, members)
-            t.forward.entry_add([ { 'name': 'egress_group', 'value': group } ],
-                                None,
-                                [ { 'name': '$SELECTOR_GROUP_ID', 'val': group } ])
 
         t.select_output.clear()
         t.ingress_untagged.clear()
@@ -563,11 +564,12 @@ class Config:
             self.ifmibs.pop(dev_port, None)
 
     def update_stats(self):
+        t = self.bfrt.Tables
         status = {}
         for dev_port, ifTable in self.ifmibs.items():
             port_t = self.bfrt.Tables.port.entry_get(
                 [ { 'name': '$DEV_PORT', 'value': dev_port } ])
-            stat_t = self.bfrt.Tables.port_stat.entry_get(
+            stat_t = t.port_stat.entry_get(
                 [ { 'name': '$DEV_PORT', 'value': dev_port } ])
             old_oper_status, new_oper_status = ifTable.update(port_t, stat_t)
             port = port_t['$PORT_NAME']
@@ -578,12 +580,27 @@ class Config:
 
         for group, members in self.groups.items():
             update = False
+            at_least_one_valid = False
             for port, member in members.items():
+                at_least_one_valid = at_least_one_valid or status[port]
                 if member['status'] != status[port]:
                    member['status'] = status[port]
                    print("egress group {0} status of member port {1} changed to {2}".
                          format(group, port, 'up' if status[port] else 'down'))
                    update = True
             if update:
-                   self._set_action_selector(self.bfrt.Tables.port_groups_sel.entry_mod,
-                                             group, members)
+                if not at_least_one_valid:
+                    ## All members are now invalid. We need to remove
+                    ## the reference to the group from the forwarding
+                    ## table before we can set this status for the
+                    ## action selector
+                    t.forward.entry_del([ { 'name': 'egress_group', 'value': group } ])
+                    self.groups_ref[group] = False
+                elif not self.groups_ref[group]:
+                    t.forward.entry_add([ { 'name': 'egress_group', 'value': group } ],
+                                        None,
+                                        [ { 'name': '$SELECTOR_GROUP_ID', 'val': group } ])
+                    self.groups_ref[group] = True
+
+                self._set_action_selector(self.bfrt.Tables.port_groups_sel.entry_mod,
+                                          group, members)

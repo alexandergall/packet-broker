@@ -58,9 +58,11 @@ control ctl_forward_packet(
         }
         actions = {
             act_send;
+            @defaultonly act_mark_to_drop(ig_md);
         }
         size = 256;
         implementation = port_groups_sel;
+        const default_action = act_mark_to_drop(ig_md);
     }
 
     apply {

@@ -172,6 +172,7 @@ class Config:
         if re.match("^[0-9]+$", port):
             return "physical port {0:d}".format(int(port))
         return "{0:s} (physical port {1:d})". format(port, self._get_dev_port(port))
+
     def configure(self):
             if self.read():
                 try:
@@ -572,9 +573,8 @@ class Config:
             port = port_t['$PORT_NAME']
             status[port] = port_t['$PORT_UP']
             if old_oper_status != new_oper_status:
-                state_str = 'up' if new_oper_status == 1 else 'down'
                 print("port {0} operational status changed to {1}".
-                      format(port, state_str))
+                      format(port, 'up' if new_oper_status == 1 else 'down'))
 
         for group, members in self.groups.items():
             update = False

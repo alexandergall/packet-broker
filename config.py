@@ -78,7 +78,7 @@ if_speed = {
 }
 
 class semantic_error(Exception):
-    def __init(self, expresssion, message):
+    def __init__(self, expresssion, message):
         self.expression = expresssion
         self.message = message
 

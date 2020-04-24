@@ -114,10 +114,5 @@ class Bfrt:
         self.target = gc.Target(device_id = device_id, pipe_id = 0xffff)
         self.info = self.intf.bfrt_info_get()
 
-    ## Pseudo class to let us refer to tables via
-    ## attributes
-    class Tables:
-        pass
-
-    def register_table(self, name, loc):
-        setattr(self.Tables, name, Table(self, name, loc))
+    def table(self, name, loc):
+        return Table(self, name, loc)

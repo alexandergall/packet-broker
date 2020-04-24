@@ -1,9 +1,12 @@
 import os
+import logging
 import re
 import json
 import jsonschema
 import ipaddress
 import mib
+
+logger = logging.getLogger(__name__)
 
 MIRROR_SESSION_ID = 1
 
@@ -78,9 +81,7 @@ if_speed = {
 }
 
 class semantic_error(Exception):
-    def __init__(self, expresssion, message):
-        self.expression = expresssion
-        self.message = message
+    pass
 
 def json_load(name):
     with open(name) as file:
@@ -89,15 +90,34 @@ def json_load(name):
     return parsed
 
 class Config:
-    def __init__(self, bfrt, config_dir, ifmibs_dir):
+    def __init__(self):
+        self.ports = {}
+        self.groups = {}
+        self.groups_ref = {}
+        self.ingress = {}
+        self.source_filter = []
+        self.flow_mirror = []
+        self.features = {
+            'drop-non-initial-fragments': False,
+            'exclude-ports-from-hash': False
+        }
+
+class PacketBroker:
+    ## Pseudo class to let us refer to tables via
+    ## attributes
+    class t:
+        pass
+
+    def __init__(self, bfrt, config_dir, ifmibs_dir, verbose):
         self.bfrt = bfrt
         self.config_dir = config_dir
         self.ifmibs_dir = ifmibs_dir
         self.json_mtime = 0
         self.indent_level = 0
+        self.verbose = verbose
 
         for name, loc in tables.items():
-            bfrt.register_table(name, loc)
+            setattr(self.t, name, bfrt.table(name, loc))
 
         ## Remove all shared memory segments to get rid of left-overs
         ## from previous runs
@@ -106,7 +126,18 @@ class Config:
                 os.unlink(self.ifmibs_dir+'/'+file)
         self.ifmibs = {}
 
-        ## In 9.1.0, the "internal" tables can't be traversed by using
+        ## Whenever a new configuration is pushed to the device, all
+        ## tables are cleared and re-programmed, except for the
+        ## interfaces to avoid links going down during
+        ## reconfiguration.  This is done by using the port-specific
+        ## part of the current configuration in the configure() method
+        ## to perform a smooth transition to the new port
+        ## configuration.  When the config daemon starts, we create an
+        ## initial pseudo-configuration here that only contains the
+        ## state of the ports as read from the device for
+        ## bootstrapping.
+
+        ## In 9.1.1, the "internal" tables can't be traversed by using
         ## "None" as the key to entry_get(), as normal P4 tables can
         ## (at least not in a reliable manner). The following logic
         ## finds all "active" interfaces by looking up the the
@@ -115,14 +146,14 @@ class Config:
         ## 33 is used for the 10G CPU ports on this model).
         ##
         ## "active" in this context means that the port has been added
-        ## to the internal table called "port", either by a previous
+        ## to the internal table called "$PORT", either by a previous
         ## instance of this script or by issuing a "port-add" command
         ## on the ucli command line.
-        self.ports = {}
+        config = Config()
         self._indent("Registering active interfaces")
         for conn in range(1, 34):
             for chnl in range(0,4):
-                res = bfrt.Tables.port_hdl_info.entry_get(
+                res = self.t.port_hdl_info.entry_get(
                     [ { 'name': '$CONN_ID', 'value': conn },
                       { 'name': '$CHNL_ID', 'value': chnl } ])
                 if res is not None:
@@ -133,18 +164,18 @@ class Config:
                     ## ports are active by looking for an arbitrary
                     ## field.  This will cause bf_switchd to log an
                     ## error for each non-active entry.
-                    res = bfrt.Tables.port.entry_get(
+                    res = self.t.port.entry_get(
                         [{ 'name': '$DEV_PORT', 'value': dev_port }],
                         [ { 'name': '$PORT_NAME' }, { 'name': '$IS_VALID' } ])
                     if res is not None:
                         ## Now that we know the port is active, fetch
                         ## all fields.
                         self._indent_up()
-                        port = bfrt.Tables.port.entry_get(
+                        port = self.t.port.entry_get(
                             [{ 'name': '$DEV_PORT', 'value': dev_port }])
                         name = port['$PORT_NAME']
                         self._indent("Port {0}".format(self._format_port(name)))
-                        self.ports[name] = {
+                        config.ports[name] = {
                             'description': None,
                             'speed': port['$SPEED'],
                             'mtu': port['$RX_MTU'],
@@ -152,9 +183,11 @@ class Config:
                             'shutdown': not port['$PORT_ENABLE']
                         }
                         self._indent_down()
+        self.config = config
 
     def _indent(self, msg):
-        print(' ' * self.indent_level * 4 + msg)
+        if self.verbose:
+            logger.info(' ' * self.indent_level * 4 + msg)
         
     def _indent_up(self):
         self.indent_level += 1
@@ -163,7 +196,7 @@ class Config:
         self.indent_level -= 1
 
     def _get_dev_port(self, port):
-        info = self.bfrt.Tables.port_str_info.entry_get(
+        info = self.t.port_str_info.entry_get(
             [{ 'name': '$PORT_NAME', 'value': port }])
         assert(info is not None)
         return info['$DEV_PORT']
@@ -174,113 +207,114 @@ class Config:
         return "{0:s} (physical port {1:d})". format(port, self._get_dev_port(port))
 
     def configure(self):
-            if self.read():
-                try:
-                    self.parse()
-                except Exception as e:
-                    print("Error parsing configuration: {}".format(e))
-                else:
-                    self.push()
+        try:
+            json, mtime = self.read()
+        except Exception as e:
+            raise Exception("Error reading configuration: {}".format(e))
+
+        if json is None:
+            return
+
+        try:
+            config = self.parse(json)
+        except Exception as e:
+            raise Exception("Error parsing configuration: {}".format(e))
+
+        try:
+            self.push(config)
+        except Exception as e:
+            raise Exception("Error pushing configuration: {}".format(e))
+
+        self.json_mtime = mtime
 
     def read(self):
         json_file = self.config_dir + '/config.json'
         mtime = os.path.getmtime(json_file)
         if mtime > self.json_mtime:
-            print("Configuration file change detected, rereading")
+            logger.info("Configuration file change detected, rereading")
             try:
-                self.json = json_load(json_file)
+                json = json_load(json_file)
             except Exception as e:
-                print("JSON parse error on {0:s}: {1:s}".
+                logger.error("JSON parse error on {0:s}: {1:s}".
                       format(json_file, e))
-                return False
+                raise e
             try:
                 schema = json_load(self.config_dir + '/schema.json')
             except Exception as e:
-                print("BUG: JSON parse error on schema: {}".format(e))
-                return False
+                logger.error("BUG: JSON parse error on schema: {}".format(e))
+                raise e
             try:
-                jsonschema.validate(self.json, schema)
+                jsonschema.validate(json, schema)
             except Exception as e:
-                print("JSON validation error: {}".format(e))
-                return False
-            self.json_mtime = mtime
-            return True
+                logger.error("JSON validation error: {}".format(e))
+                raise e
+            return json, mtime
         else:
-            print("Configuration unchanged, doing nothing")
-            return False
+            logger.info("Configuration unchanged, doing nothing")
+            return None, None
         
-    def parse(self):
-        self.groups = {}
-        self.groups_ref = {}
-        self.ingress = {}
-        self.source_filter = []
-        self.flow_mirror = []
-        self.features = {
-            'drop-non-initial-fragments': False,
-            'exclude-ports-from-hash': False
-        }
-        self.old_ports = self.ports
-        self.ports = {}
-        
-        def add_port(port, config):
-            if port in self.ports.keys():
+    def parse(self, json):
+        config = Config()
+
+        def add_port(port, port_config):
+            if port in config.ports.keys():
                 raise semantic_error("port {0:s} already defined".format(port))
             full_config = {
                 'description': None,
                 'fec': 'BF_FEC_TYP_NONE',
                 'shutdown': False
             }
-            full_config.update(config)
-            self.ports[port] = full_config
+            full_config.update(port_config)
+            config.ports[port] = full_config
 
         self._indent("Setting up egress port groups")
         self._indent_up()
-        for group in self.json['ports']['egress']:
+        for group in json['ports']['egress']:
             id = group['group-id']
-            if id in self.groups.keys():
+            if id in config.groups.keys():
                 raise semantic_error("group id {0:d} already defined".format(id))
             
             self._indent("Group {0:d}".format(id))
             self._indent_up()
-            self.groups[id] = {}
+            config.groups[id] = {}
             for port, dict in sorted(group['members'].items()):
                 self._indent("Port " + self._format_port(port))
                 add_port(port, dict['config'])
-                self.groups[id][port] = {}
+                config.groups[id][port] = {}
             self._indent_down()
         self._indent_down()
 
         self._indent("Setting up ingress ports")
         self._indent_up()
-        for port, dict in sorted(self.json['ports']['ingress'].items()):
+        for port, dict in sorted(json['ports']['ingress'].items()):
             self._indent("Port " + self._format_port(port))
             add_port(port, dict['config'])
             egress_group = dict['egress-group']
-            self.ingress[port] = {
+            config.ingress[port] = {
                 'vlans' : dict['vlans'],
                 'egress_group' : egress_group
             }
-            if not egress_group in self.groups.keys():
+            if not egress_group in config.groups.keys():
                 semantic_error("Undefined egress group {0:d}".format(egress_group))
         self._indent_down()
         
         self._indent("Setting up other ports")
         self._indent_up()
-        for port, dict in sorted(self.json['ports']['other'].items()):
+        for port, dict in sorted(json['ports']['other'].items()):
             self._indent("Port " + self._format_port(port))
             add_port(port, dict['config'])
         self._indent_down()
 
-        if 'source-filter' in self.json.keys():
+        if 'source-filter' in json.keys():
             self._indent("Setting source filters")
             self._indent_up()
-            for str in self.json['source-filter']:
+            for str in json['source-filter']:
                 prefix = ipaddress.ip_network(str)
                 self._indent(prefix.with_prefixlen)
-                self.source_filter.append(prefix)
+                config.source_filter.append(prefix)
             self._indent_down()
 
-        if 'flow-mirror' in self.json.keys():
+        if 'flow-mirror' in json.keys():
             self._indent("Setting flow mirrors")
             self._indent_up()
             
@@ -300,14 +334,14 @@ class Config:
                     dst.with_prefixlen, format_l4_port(dst_port)))
                 if src.version != dst.version:
                     raise semantic_error("address family mismatch")
-                self.flow_mirror.append([ src, dst, src_port, dst_port, flow_id ])
+                config.flow_mirror.append([ src, dst, src_port, dst_port, flow_id ])
 
             flow_id = 1
-            for flow in self.json['flow-mirror']:
+            for flow in json['flow-mirror']:
                 if 'enable' in flow.keys() and not flow['enable']:
                     continue
-                if (not 'features' in self.json.keys() or
-                    not 'flow-mirror' in self.json['features'].keys()):
+                if (not 'features' in json.keys() or
+                    not 'flow-mirror' in json['features'].keys()):
                     raise semantic_error("mirror destination missing")
 
                 add_flow(flow_id, flow)
@@ -320,17 +354,17 @@ class Config:
                     flow_id += 1
             self._indent_down()
 
-        if 'features' in self.json.keys():
+        if 'features' in json.keys():
             self._indent("Setting features")
             self._indent_up()
     
-            for feature, value in self.json['features'].items():
+            for feature, value in json['features'].items():
                 if feature == 'deflect-on-drop':
                     self._indent("Deflect-on-drop to port " +
                                  self._format_port(value))
                     if not re.match("^[0-9]+$", value):
                         value = self._get_dev_port(value)
-                    self.features['deflect-on-drop'] = int(value)
+                    config.features['deflect-on-drop'] = int(value)
 
                 if feature == 'flow-mirror':
                     self._indent("Flow mirror")
@@ -348,7 +382,7 @@ class Config:
                     else:
                         max_pkt_len = 16384
                     self._indent("Maximum packet length {0:d}".format(max_pkt_len))
-                    self.features['flow-mirror'] = {
+                    config.features['flow-mirror'] = {
                         'port': int(port),
                         'max_pkt_len': max_pkt_len
                     }
@@ -356,13 +390,14 @@ class Config:
 
                 if feature == 'drop-non-initial-fragments' and value:
                     self._indent("Drop non-initial fragemnts")
-                    self.features['drop-non-initial-fragments'] = True
+                    config.features['drop-non-initial-fragments'] = True
 
                 if feature == 'exclude-ports-from-hash' and value:
                     self._indent("Exclude L4 ports from hash")
-                    self.features['exclude-ports-from-hash'] = True
+                    config.features['exclude-ports-from-hash'] = True
 
             self._indent_down()
+        return config
 
     def _set_action_selector(self, method, group, members):
         id = [ member['id'] for member in members.values() ]
@@ -376,99 +411,98 @@ class Config:
               { 'name': '$ACTION_MEMBER_STATUS',
                 'bool_arr_val': status } ])
 
-    def push(self):
+    def push(self, config):
         get_dev_port = self._get_dev_port
         format_port = self._format_port
-        t = self.bfrt.Tables
         
         self._indent("Programming tables")
         self._indent_up()
 
         ### Action profile and selector
         ## Order matters here
-        t.forward.clear()
-        t.port_groups_sel.clear()
-        t.port_groups.clear()
+        self.t.forward.clear()
+        self.t.port_groups_sel.clear()
+        self.t.port_groups.clear()
         
         member_id = 1
-        for group, members in self.groups.items():
+        for group, members in config.groups.items():
             ## Group is not referenced from
             ## the forwarding table
-            self.groups_ref[group] = False
+            config.groups_ref[group] = False
             for port, member in members.items():
                 dev_port = get_dev_port(port)
                 member['id'] = member_id
                 member['status'] = False
                 self._indent("Adding action profile member {0:d} port {1:s}".
                        format(member_id, format_port(port)))
-                t.port_groups.entry_add(
+                self.t.port_groups.entry_add(
                     [ { 'name': '$ACTION_MEMBER_ID', 'value': member_id } ],
                     'act_send',
                     [ { 'name': 'egress_port', 'val': dev_port } ])
                 member_id += 1
 
             self._indent("Adding action selector group #{0:d}".format(group))
-            self._set_action_selector(t.port_groups_sel.entry_add, group, members)
+            self._set_action_selector(self.t.port_groups_sel.entry_add, group, members)
 
-        t.select_output.clear()
-        t.ingress_untagged.clear()
-        t.ingress_tagged.clear()
-        for port, dict in sorted(self.ingress.items()):
+        self.t.select_output.clear()
+        self.t.ingress_untagged.clear()
+        self.t.ingress_tagged.clear()
+        for port, dict in sorted(config.ingress.items()):
             dev_port = get_dev_port(port)
             vlans = dict['vlans']
             egress_group = dict['egress_group']
             self._indent("Output group for port {0:s} is {1:d}".
                          format(port, egress_group))
-            t.select_output.entry_add(
+            self.t.select_output.entry_add(
                 [ { 'name': 'ingress_port', 'value': dev_port } ],
                 'act_output_group',
                 [ { 'name': 'group', 'val': egress_group } ])
 
             if 'push' in vlans:
-                t.ingress_untagged.entry_add(
+                self.t.ingress_untagged.entry_add(
                     [ { 'name': 'ingress_port', 'value': dev_port } ],
                     'act_push_vlan',
                     [ { 'name': 'vid', 'val': vlans['push'] } ])
 
             if 'rewrite' in vlans:
                 for rule in vlans['rewrite']:
-                    t.ingress_tagged.entry_add(
+                    self.t.ingress_tagged.entry_add(
                         [ { 'name': 'ingress_port', 'value': dev_port },
                           { 'name': 'ingress_vid', 'value': rule['in'] } ],
                         'act_rewrite_vlan',
                         [ { 'name': 'vid', 'val': rule['out'] } ])
 
-        t.filter_ipv4.clear()
-        t.filter_ipv6.clear()
-        for prefix in self.source_filter:
+        self.t.filter_ipv4.clear()
+        self.t.filter_ipv6.clear()
+        for prefix in config.source_filter:
             if prefix.version == 4:
-                tbl = t.filter_ipv4
+                tbl = self.t.filter_ipv4
                 ## Makes entry_add() accept "src_addr" as a string rather than
                 ## a byte array
                 tbl.table.info.key_field_annotation_add("src_addr", "ipv4")
             else:
-                tbl = t.filter_ipv6
+                tbl = self.t.filter_ipv6
             tbl.table.info.key_field_annotation_add("src_addr", "ipv6")
             tbl.entry_add(
                 [ { 'name': 'src_addr', 'value': prefix.network_address.exploded,
                     'prefix_len': prefix.prefixlen } ],
                 'act_drop', [])
 
-        t.mirror_ipv4.clear()
-        t.mirror_ipv6.clear()
-        if 'flow-mirror' in self.features.keys():
-            for flow in self.flow_mirror:
+        self.t.mirror_ipv4.clear()
+        self.t.mirror_ipv6.clear()
+        if 'flow-mirror' in config.features.keys():
+            for flow in config.flow_mirror:
                 src = flow[0]
                 dst = flow[1]
                 src_port = flow[2]
                 dst_port = flow[3]
                 id = flow[4]
                 if src.version == 4:
-                    tbl = t.mirror_ipv4
+                    tbl = self.t.mirror_ipv4
                     tbl.table.info.key_field_annotation_add("src_addr", "ipv4")
                     tbl.table.info.key_field_annotation_add("dst_addr", "ipv4")
                 else:
-                    tbl = t.mirror_ipv6
+                    tbl = self.t.mirror_ipv6
                     tbl.table.info.key_field_annotation_add("src_addr", "ipv6")
                     tbl.table.info.key_field_annotation_add("dst_addr", "ipv6")
                 try:
@@ -484,10 +518,10 @@ class Config:
                         'act_mirror',
                         [ { 'name': 'mirror_session', 'val': MIRROR_SESSION_ID } ])
                 except Exception as e:
-                    print("error while programming flow mirror rule #{0:d}: {1}".format(id, e))
+                    logger.error("error while programming flow mirror rule #{0:d}: {1}".format(id, e))
             
-            flow_mirror = self.features['flow-mirror']
-            t.mirror_cfg.entry_add(
+            flow_mirror = config.features['flow-mirror']
+            self.t.mirror_cfg.entry_add(
                 [ { 'name': '$sid', 'value': MIRROR_SESSION_ID } ],
                 '$normal',
                 [ { 'name': '$session_enable', 'bool_val': True },
@@ -501,91 +535,91 @@ class Config:
         self._indent("Programming features")
         self._indent_up()
 
-        t.drop.default_entry_reset()
-        t.maybe_drop_fragment.default_entry_reset()
-        t.maybe_exclude_l4.default_entry_reset()
+        self.t.drop.default_entry_reset()
+        self.t.maybe_drop_fragment.default_entry_reset()
+        self.t.maybe_exclude_l4.default_entry_reset()
 
-        if 'deflect-on-drop' in self.features.keys():
+        if 'deflect-on-drop' in config.features.keys():
             self._indent("deflect-on-drop to physical port {0:d}".
-                         format(self.features['deflect-on-drop']))
-            t.drop.default_entry_set(
+                         format(config.features['deflect-on-drop']))
+            self.t.drop.default_entry_set(
                 'ig_ctl.ctl_drop_packet.send_to_port',
-                [ { 'name': 'port',  'val': self.features['deflect-on-drop'] } ])
+                [ { 'name': 'port',  'val': config.features['deflect-on-drop'] } ])
 
-        if self.features['drop-non-initial-fragments']:
+        if config.features['drop-non-initial-fragments']:
             self._indent("drop-non-initial-fragments")
-            t.maybe_drop_fragment.default_entry_set('act_mark_to_drop')
+            self.t.maybe_drop_fragment.default_entry_set('act_mark_to_drop')
 
-        if  self.features['exclude-ports-from-hash']:
+        if  config.features['exclude-ports-from-hash']:
             self._indent("exclude-ports-from-hash")
-            t.maybe_exclude_l4.default_entry_set('act_exclude_l4')
+            self.t.maybe_exclude_l4.default_entry_set('act_exclude_l4')
 
         self._indent_down()
             
-        for port, config in sorted(self.ports.items()):
+        for port, pconfig in sorted(config.ports.items()):
             dev_port = get_dev_port(port)
 
-            if port in self.old_ports.keys():
-                if self.old_ports[port] == config:
+            if port in self.config.ports.keys():
+                if self.config.ports[port] == pconfig:
                     method = None
                 else:
-                    method = t.port.entry_mod
-                    if self.old_ports[port]['shutdown'] != config['shutdown']:
-                        print("port {0} administrative status changed to {1}".
-                              format(port, 'down' if config['shutdown'] else 'up'))
-                del self.old_ports[port]
+                    method = self.t.port.entry_mod
+                    if self.config.ports[port]['shutdown'] != pconfig['shutdown']:
+                        logger.info("port {0} administrative status changed to {1}".
+                              format(port, 'down' if pconfig['shutdown'] else 'up'))
+                del self.config.ports[port]
             else:
-                method = t.port.entry_add
+                method = self.t.port.entry_add
             if method is not None:
                 method([ { 'name': '$DEV_PORT', 'value': dev_port } ],
                        None,
-                       [ { 'name': '$SPEED', 'str_val': config['speed'].encode('ascii') },
-                         { 'name': '$FEC', 'str_val':  config['fec'].encode('ascii') },
-                         { 'name': '$PORT_ENABLE', 'bool_val': not config['shutdown'] },
-                         { 'name': '$RX_MTU', 'val': config['mtu'] },
-                         { 'name': '$TX_MTU', 'val': config['mtu'] } ])
+                       [ { 'name': '$SPEED', 'str_val': pconfig['speed'].encode('ascii') },
+                         { 'name': '$FEC', 'str_val':  pconfig['fec'].encode('ascii') },
+                         { 'name': '$PORT_ENABLE', 'bool_val': not pconfig['shutdown'] },
+                         { 'name': '$RX_MTU', 'val': pconfig['mtu'] },
+                         { 'name': '$TX_MTU', 'val': pconfig['mtu'] } ])
 
                 if dev_port not in self.ifmibs.keys():
                     self.ifmibs[dev_port] = mib.ifmib(self.ifmibs_dir+'/'+re.sub('/', '_', port))
                 self.ifmibs[dev_port].set_properties(
                     { 'ifDescr': port,
                       'ifName': port.encode('ascii'),
-                      'ifAlias': config['description'].encode('ascii'),
-                      'ifMtu': config['mtu'],
-                      'speed': if_speed[config['speed']] }
+                      'ifAlias': pconfig['description'].encode('ascii'),
+                      'ifMtu': pconfig['mtu'],
+                      'speed': if_speed[pconfig['speed']] }
                 )
 
-        for port in sorted(self.old_ports.keys()):
+        for port in sorted(self.config.ports.keys()):
             dev_port = get_dev_port(port)
             self._indent("Removing port {0} (phys port {1})".
                          format(port, dev_port))
-            t.port.entry_del([ { 'name': '$DEV_PORT', 'value': dev_port } ])
+            self.t.port.entry_del([ { 'name': '$DEV_PORT', 'value': dev_port } ])
             self.ifmibs[dev_port].delete()
             self.ifmibs.pop(dev_port, None)
+        self.config = config
 
     def update_stats(self):
-        t = self.bfrt.Tables
         status = {}
         for dev_port, ifTable in self.ifmibs.items():
-            port_t = self.bfrt.Tables.port.entry_get(
+            port_t = self.t.port.entry_get(
                 [ { 'name': '$DEV_PORT', 'value': dev_port } ])
-            stat_t = t.port_stat.entry_get(
+            stat_t = self.t.port_stat.entry_get(
                 [ { 'name': '$DEV_PORT', 'value': dev_port } ])
             old_oper_status, new_oper_status = ifTable.update(port_t, stat_t)
             port = port_t['$PORT_NAME']
             status[port] = port_t['$PORT_UP']
             if old_oper_status != new_oper_status:
-                print("port {0} operational status changed to {1}".
+                logger.info("port {0} operational status changed to {1}".
                       format(port, 'up' if new_oper_status == 1 else 'down'))
 
-        for group, members in self.groups.items():
+        for group, members in self.config.groups.items():
             update = False
             at_least_one_valid = False
             for port, member in members.items():
                 at_least_one_valid = at_least_one_valid or status[port]
                 if member['status'] != status[port]:
                    member['status'] = status[port]
-                   print("egress group {0} status of member port {1} changed to {2}".
+                   logger.info("egress group {0} status of member port {1} changed to {2}".
                          format(group, port, 'up' if status[port] else 'down'))
                    update = True
             if update:
@@ -594,13 +628,14 @@ class Config:
                     ## the reference to the group from the forwarding
                     ## table before we can set this status for the
                     ## action selector
-                    t.forward.entry_del([ { 'name': 'egress_group', 'value': group } ])
-                    self.groups_ref[group] = False
-                elif not self.groups_ref[group]:
-                    t.forward.entry_add([ { 'name': 'egress_group', 'value': group } ],
+                    logger.warning("egress group {0} all member ports are down".format(group))
+                    self.t.forward.entry_del([ { 'name': 'egress_group', 'value': group } ])
+                    self.config.groups_ref[group] = False
+                elif not self.config.groups_ref[group]:
+                    self.t.forward.entry_add([ { 'name': 'egress_group', 'value': group } ],
                                         None,
                                         [ { 'name': '$SELECTOR_GROUP_ID', 'val': group } ])
-                    self.groups_ref[group] = True
+                    self.config.groups_ref[group] = True
 
-                self._set_action_selector(self.bfrt.Tables.port_groups_sel.entry_mod,
+                self._set_action_selector(self.t.port_groups_sel.entry_mod,
                                           group, members)

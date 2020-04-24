@@ -4,7 +4,8 @@ import sys
 import os
 import signal
 import time
-import bfrt, config
+import logging
+import bfrt, packet_broker
 
 parser = argparse.ArgumentParser(description='Packet-broker configuration daemon')
 parser.add_argument('--config-dir', help=
@@ -24,25 +25,44 @@ parser.add_argument('--connect-retries', help=
                     """The number of retries the gRPC client attempts
                     to connect to the server at one-second intervals""",
                     type=int, required=False, default=30)
+parser.add_argument('--verbose', help=
+                    """Enable verbose logging during configuration
+                    parsing""",
+                    required=False, action = 'store_true')
 args = parser.parse_args()
 
 ## Make outputs unbuffered for logging purposes
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
 sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 0)
 
+logging.basicConfig(level = logging.INFO,
+                    format='%(asctime)s.%(msecs)03d %(levelname)s:%(name)s: %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
+logger = logging.getLogger('configd')
+
+def configure(broker, fatal = False):
+    try:
+        broker.configure()
+    except Exception as e:
+        logger.error("Configure failed: {}".format(e))
+        if fatal:
+            bfrt.intf._tear_down_stream()
+            sys.exit(1)
+
 bfrt = bfrt.Bfrt("packet_broker", retries = args.connect_retries)
-config = config.Config(bfrt, args.config_dir, args.ifmibs_dir)
-config.configure()
+broker = packet_broker.PacketBroker(bfrt, args.config_dir,
+                                    args.ifmibs_dir, args.verbose)
+configure(broker, fatal = True)
 
 def sighup_handler(signal, frame):
-    print("Received SIGHUP")
-    config.configure()
+    logger.info("Received SIGHUP")
+    configure(broker)
 
 signals = dict((getattr(signal, n), n) \
                for n in dir(signal) if n.startswith('SIG') and '_' not in n )
 
 def exit_handler(signal, frame):
-    print("Received {}, exiting".format(signals[signal]))
+    logger.info("Received {}, exiting".format(signals[signal]))
     bfrt.intf._tear_down_stream()
     sys.exit(0)
 
@@ -52,4 +72,4 @@ signal.signal(signal.SIGINT, exit_handler)
 
 while True:
     time.sleep(args.stats_update_interval)
-    config.update_stats()
+    broker.update_stats()

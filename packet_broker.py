@@ -295,7 +295,7 @@ class PacketBroker:
                 'egress_group' : egress_group
             }
             if not egress_group in config.groups.keys():
-                semantic_error("Undefined egress group {0:d}".format(egress_group))
+                raise semantic_error("Undefined egress group {0:d}".format(egress_group))
         self._indent_down()
         
         self._indent("Setting up other ports")
@@ -311,6 +311,9 @@ class PacketBroker:
             for str in json['source-filter']:
                 prefix = ipaddress.ip_network(str)
                 self._indent(prefix.with_prefixlen)
+                if prefix in config.source_filter:
+                    raise semantic_error("Duplicate source filter: {0:s}"
+                                         .format(prefix))
                 config.source_filter.append(prefix)
             self._indent_down()
 

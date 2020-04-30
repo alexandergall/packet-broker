@@ -312,9 +312,10 @@ class PacketBroker:
                 prefix = ipaddress.ip_network(str)
                 self._indent(prefix.with_prefixlen)
                 if prefix in config.source_filter:
-                    raise semantic_error("Duplicate source filter: {0:s}"
-                                         .format(prefix))
-                config.source_filter.append(prefix)
+                    logger.warning("Ignoring duplicate source filter: {0:s}"
+                                   .format(prefix))
+                else:
+                    config.source_filter.append(prefix)
             self._indent_down()
 
         if 'flow-mirror' in json.keys():

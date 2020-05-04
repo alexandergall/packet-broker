@@ -1,0 +1,179 @@
+#!/usr/bin/env python
+import argparse
+import sys
+import logging
+import socket
+import json
+
+def reload(args):
+    return None
+
+def show(args):
+    item = args.command_1
+    if item == 'source-filter' and args.dynamic:
+        return [ 'source-filter-dynamic' ]
+    return [ item ]
+
+def dump(args):
+    item = args.command_1
+    return {
+        'source-filter': [ 'filter_ipv4', 'filter_ipv6' ],
+        'flow-mirror': [ 'mirror_ipv4', 'mirror_ipv6' ],
+        'ingress': [ 'ingress_tagged', 'ingress_untagged' ],
+        'select-output': [ 'select_output' ],
+        'forward': [ 'forward'],
+        'port-groups': [ 'port_groups' ],
+        'port-groups-sel': [ 'port_groups_sel' ]
+    }[item]
+    
+def add_remove(args):
+    item = args.command_1
+    if item == 'source-filter':
+        return { item: args.prefix }
+
+def create_subparser(prsr, spec, level = 0):
+    for name, args in spec.get('arguments', {}).items():
+        prsr.add_argument(name, **args)
+    if 'commands' in spec.keys():
+        sprsr = prsr.add_subparsers(help = spec.get('help', None),
+                                    dest = 'command_' + str(level),
+                                    description = spec.get('description', None),
+                                    title = spec.get('title', None))
+        for command, spec in spec['commands'].items():
+            prsr = sprsr.add_parser(command, help = spec['help'])
+            if spec.get('func', None) is not None:
+                prsr.set_defaults(func=spec['func'])
+            create_subparser(prsr, spec, level+1)
+
+def request(host, port, command, args = None):
+    req = {
+        'command': command,
+        'args': args
+    }
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    logger.info("Trying {}".format(host))
+    s.connect((host, port))
+    logger.info("Connected")
+    s.send(json.dumps(req) + "\n")
+    f = s.makefile()
+    line = f.readline()
+    resp = json.loads(line)
+    s.close()
+    return(resp)
+
+parse_tree = {
+    'title': 'Available commands',
+    'arguments': {
+        '--host': {
+            'action': 'append'
+        },
+        '--port': {
+            'type': int,
+            'default': 7000,
+            'action': 'store'
+        }
+    },
+    'commands': {
+        'reload': {
+            'help': "Reload configuration",
+            'func': reload
+        },
+        'show': {
+            'help': "Show running configuration",
+            'func': show,
+            'commands': {
+                'ports': {
+                    'help': "Port configurations",
+                },
+                'groups': {
+                    'help': "Port configurations",
+                },
+                'ingress': {
+                    'help': "Ingress processing",
+                },
+                'source-filter': {
+                    'help': "Source filters",
+                    'arguments': {
+                        '--dynamic': {
+                            'help': "Show dynamic filters",
+                            'action': 'store_true'
+                        }
+                    }
+                },
+                'flow-mirror': {
+                    'help': "Flow mirror rules",
+                },
+                'features': {
+                    'help': "Features",
+                }
+            }
+        },
+        'dump': {
+            'help': "Dump tables from hardware",
+            'func': dump,
+            'commands': {
+                'source-filter': {
+                    'help': "Source filters"
+                },
+                'flow-mirror': {
+                    'help': "Flow mirror rules"
+                },
+                'ingress': {
+                    'help': "Ingress VLAN push/rewrite rules"
+                },
+                'select-output': {
+                    'help': "Ingress port to output group mapping"
+                },
+                'forward': {
+                    'help': "Output group to port mapping"
+                }
+            }
+        },
+        'add': {
+            'help': "Add dynamic table entries",
+            'title': "Available items to add",
+            'func': add_remove,
+            'commands': {
+                'source-filter': {
+                    'help': "Source filters",
+                    'arguments': {
+                        'prefix': {
+                            'nargs': '*',
+                            'help': "An IPv4 or IPv6 prefix"
+                        }
+                    }
+                }
+            }
+        },
+        'remove': {
+            'help': "Remove dynamic table entries",
+            'func': add_remove,
+            'commands': {
+                'source-filter': {
+                    'help': "Source filters",
+                    'arguments': {
+                        'prefix': {
+                            'nargs': '*',
+                            'help': "An IPv4 or IPv6 prefix"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+logging.basicConfig(level = logging.INFO,
+                    format='%(levelname)s:%(name)s: %(message)s')
+logger = logging.getLogger('brokerctl')
+
+prsr = argparse.ArgumentParser(description = "Packet Broker controller")
+create_subparser(prsr, parse_tree)
+args = prsr.parse_args()
+if not args.host:
+    args.host = [ 'localhost' ]
+
+result = {}
+for host in args.host:
+    result[host] = request(host, args.port, args.command_0, args.func(args))
+print(json.dumps(result, indent=2))

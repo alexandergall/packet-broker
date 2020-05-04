@@ -5,7 +5,20 @@ import os
 import signal
 import time
 import logging
+import socket, select
+import json
 import bfrt, packet_broker
+
+## XXX
+import pprint
+
+class JSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if hasattr(obj, 'compressed'):
+            return obj.compressed
+        else:
+            pprint.pprint(obj)
+            raise TypeError
 
 parser = argparse.ArgumentParser(description='Packet-broker configuration daemon')
 parser.add_argument('--config-dir', help=
@@ -25,10 +38,14 @@ parser.add_argument('--connect-retries', help=
                     """The number of retries the gRPC client attempts
                     to connect to the server at one-second intervals""",
                     type=int, required=False, default=30)
-parser.add_argument('--verbose', help=
-                    """Enable verbose logging during configuration
-                    parsing""",
-                    required=False, action = 'store_true')
+parser.add_argument('--listen-on', help=
+                    """The addresses to listen on for communication with
+                    the brokerctl command""",
+                    type=str, default='localhost')
+parser.add_argument('--port', help=
+                    """The port to use for communication with the
+                    brokerctl command""",
+                    type=int, default=7000)
 args = parser.parse_args()
 
 ## Make outputs unbuffered for logging purposes
@@ -40,23 +57,20 @@ logging.basicConfig(level = logging.INFO,
                     datefmt='%Y-%m-%d %H:%M:%S')
 logger = logging.getLogger('configd')
 
-def configure(broker, fatal = False):
-    try:
-        broker.configure()
-    except Exception as e:
-        logger.error("Configure failed: {}".format(e))
-        if fatal:
-            bfrt.intf._tear_down_stream()
-            sys.exit(1)
+## XXX: make dual-stack
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.bind((args.listen_on, args.port))
+s.listen(5)
+logger.info("Listening on {}/{} for connections".
+            format(args.listen_on if args.listen_on else 'any',
+                   str(args.port)))
 
 bfrt = bfrt.Bfrt("packet_broker", retries = args.connect_retries)
-broker = packet_broker.PacketBroker(bfrt, args.config_dir,
-                                    args.ifmibs_dir, args.verbose)
-configure(broker, fatal = True)
+broker = packet_broker.PacketBroker(bfrt, args.config_dir, args.ifmibs_dir)
 
-def sighup_handler(signal, frame):
-    logger.info("Received SIGHUP")
-    configure(broker)
+if not broker.handle_request(('self', 0), { 'command': 'reload'})['success']:
+    bfrt.intf._tear_down_stream()
+    sys.exit(1)
 
 signals = dict((getattr(signal, n), n) \
                for n in dir(signal) if n.startswith('SIG') and '_' not in n )
@@ -64,12 +78,29 @@ signals = dict((getattr(signal, n), n) \
 def exit_handler(signal, frame):
     logger.info("Received {}, exiting".format(signals[signal]))
     bfrt.intf._tear_down_stream()
+    s.close()
     sys.exit(0)
 
-signal.signal(signal.SIGHUP, sighup_handler)
 signal.signal(signal.SIGTERM, exit_handler)
 signal.signal(signal.SIGINT, exit_handler)
 
+stats_stamp = time.time()
 while True:
-    time.sleep(args.stats_update_interval)
-    broker.update_stats()
+    r, w, e = select.select([s], [], [], args.stats_update_interval)
+    if s in r:
+        c, peer = s.accept()
+        f = c.makefile()
+        line = f.readline()
+        if not line:
+            print("EOF")
+            c.close()
+            break
+        resp = broker.handle_request(peer, json.loads(line))
+        c.send(json.dumps(resp, cls = JSONEncoder) + "\n")
+        c.close()
+
+    now = time.time()
+
+    if not r or now - stats_stamp >= args.stats_update_interval:
+        stats_stamp = now
+        broker.update_stats()

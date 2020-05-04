@@ -96,6 +96,7 @@ class Config:
         self.groups_ref = {}
         self.ingress = {}
         self.source_filter = []
+        self.source_filter_d = []
         self.flow_mirror = []
         self.features = {
             'drop-non-initial-fragments': False,
@@ -108,13 +109,10 @@ class PacketBroker:
     class t:
         pass
 
-    def __init__(self, bfrt, config_dir, ifmibs_dir, verbose):
+    def __init__(self, bfrt, config_dir, ifmibs_dir):
         self.bfrt = bfrt
         self.config_dir = config_dir
         self.ifmibs_dir = ifmibs_dir
-        self.json_mtime = 0
-        self.indent_level = 0
-        self.verbose = verbose
 
         for name, loc in tables.items():
             setattr(self.t, name, bfrt.table(name, loc))
@@ -150,7 +148,6 @@ class PacketBroker:
         ## instance of this script or by issuing a "port-add" command
         ## on the ucli command line.
         config = Config()
-        self._indent("Registering active interfaces")
         for conn in range(1, 34):
             for chnl in range(0,4):
                 res = self.t.port_hdl_info.entry_get(
@@ -170,11 +167,9 @@ class PacketBroker:
                     if res is not None:
                         ## Now that we know the port is active, fetch
                         ## all fields.
-                        self._indent_up()
                         port = self.t.port.entry_get(
                             [{ 'name': '$DEV_PORT', 'value': dev_port }])
                         name = port['$PORT_NAME']
-                        self._indent("Port {0}".format(self._format_port(name)))
                         config.ports[name] = {
                             'description': None,
                             'speed': port['$SPEED'],
@@ -182,18 +177,7 @@ class PacketBroker:
                             'fec': port['$FEC'],
                             'shutdown': not port['$PORT_ENABLE']
                         }
-                        self._indent_down()
         self.config = config
-
-    def _indent(self, msg):
-        if self.verbose:
-            logger.info(' ' * self.indent_level * 4 + msg)
-        
-    def _indent_up(self):
-        self.indent_level += 1
-        
-    def _indent_down(self):
-        self.indent_level -= 1
 
     def _get_dev_port(self, port):
         info = self.t.port_str_info.entry_get(
@@ -201,59 +185,81 @@ class PacketBroker:
         assert(info is not None)
         return info['$DEV_PORT']
 
-    def _format_port(self, port):
-        if re.match("^[0-9]+$", port):
-            return "physical port {0:d}".format(int(port))
-        return "{0:s} (physical port {1:d})". format(port, self._get_dev_port(port))
+    def _msgs_clear(self):
+        self.msgs = []
 
-    def configure(self):
+    def _msg_add(self, msg, level = logging.INFO):
+        self.msgs.append({
+            'level': level,
+            'msg': msg
+        })
+
+    def _info(self, msg):
+        self._msg_add(msg)
+
+    def _warning(self, msg):
+        self._msg_add(msg, level = logging.WARNING)
+
+    def _error(self, msg):
+        self._msg_add(msg, level = logging.ERROR)
+
+    def _dump_dynamic_source_filters(self):
+        file = self.config_dir + "/source_filter_dynamic"
         try:
-            json, mtime = self.read()
+            f = open(file, "w")
         except Exception as e:
-            raise Exception("Error reading configuration: {}".format(e))
-
-        if json is None:
-            return
-
+            raise Exception("Error opening {} for writing: {}".
+                            format(file, e))
+        f.write("## Automatically generated file. DO NOT EDIT.\n")
+        for prefix in self.config.source_filter_d:
+            f.write(prefix.compressed + "\n")
         try:
-            config = self.parse(json)
+            f.close()
         except Exception as e:
-            raise Exception("Error parsing configuration: {}".format(e))
+            raise Exception("Error saving dynamic filters to {}: {}".
+                            format(file, e))
 
+    def _read_dynamic_source_filters(self, config):
+        file = self.config_dir + "/source_filter_dynamic"
         try:
-            self.push(config)
+            f = open(file, "r")
         except Exception as e:
-            raise Exception("Error pushing configuration: {}".format(e))
+            raise Exception("Error opening {} for reading: {}".
+                            format(file, e))
+        for line in f:
+            if re.match("^#", line):
+                continue
+            prefix = ipaddress.ip_network(line.rstrip().decode())
+            if prefix in config.source_filter:
+                ## Can only happen if the prefix has been added
+                ## manually to the file
+                self._warning("Igonring dynamic filter colliding with persistent " +
+                              "filter: {} ".format(prefix.compressed))
+            elif prefix in config.source_filter_d:
+                self._warning("Igonring duplicate dynamic filter: {}".
+                              format(prefix.compressed))
+            else:
+                config.source_filter_d.append(prefix)
+        f.close()
 
-        self.json_mtime = mtime
-
-    def read(self):
+    def _read(self):
         json_file = self.config_dir + '/config.json'
-        mtime = os.path.getmtime(json_file)
-        if mtime > self.json_mtime:
-            logger.info("Configuration file change detected, rereading")
-            try:
-                json = json_load(json_file)
-            except Exception as e:
-                logger.error("JSON parse error on {0:s}: {1:s}".
-                      format(json_file, e))
-                raise e
-            try:
-                schema = json_load(self.config_dir + '/schema.json')
-            except Exception as e:
-                logger.error("BUG: JSON parse error on schema: {}".format(e))
-                raise e
-            try:
-                jsonschema.validate(json, schema)
-            except Exception as e:
-                logger.error("JSON validation error: {}".format(e))
-                raise e
-            return json, mtime
-        else:
-            logger.info("Configuration unchanged, doing nothing")
-            return None, None
-        
-    def parse(self, json):
+        try:
+            json = json_load(json_file)
+        except Exception as e:
+            raise Exception("JSON parse error on {0:s}: {1:s}".
+                  format(json_file, e))
+        try:
+            schema = json_load(self.config_dir + '/schema.json')
+        except Exception as e:
+            raise Exception("BUG: JSON parse error on schema: {}".format(e))
+        try:
+            jsonschema.validate(json, schema)
+        except Exception as e:
+            raise Exception("JSON validation error: {}".format(e))
+        return json
+
+    def _parse(self, json):
         config = Config()
 
         def add_port(port, port_config):
@@ -267,27 +273,17 @@ class PacketBroker:
             full_config.update(port_config)
             config.ports[port] = full_config
 
-        self._indent("Setting up egress port groups")
-        self._indent_up()
         for group in json['ports']['egress']:
             id = group['group-id']
             if id in config.groups.keys():
                 raise semantic_error("group id {0:d} already defined".format(id))
             
-            self._indent("Group {0:d}".format(id))
-            self._indent_up()
             config.groups[id] = {}
             for port, dict in sorted(group['members'].items()):
-                self._indent("Port " + self._format_port(port))
                 add_port(port, dict['config'])
                 config.groups[id][port] = {}
-            self._indent_down()
-        self._indent_down()
 
-        self._indent("Setting up ingress ports")
-        self._indent_up()
         for port, dict in sorted(json['ports']['ingress'].items()):
-            self._indent("Port " + self._format_port(port))
             add_port(port, dict['config'])
             egress_group = dict['egress-group']
             config.ingress[port] = {
@@ -296,111 +292,89 @@ class PacketBroker:
             }
             if not egress_group in config.groups.keys():
                 raise semantic_error("Undefined egress group {0:d}".format(egress_group))
-        self._indent_down()
         
-        self._indent("Setting up other ports")
-        self._indent_up()
         for port, dict in sorted(json['ports']['other'].items()):
-            self._indent("Port " + self._format_port(port))
             add_port(port, dict['config'])
-        self._indent_down()
 
         if 'source-filter' in json.keys():
-            self._indent("Setting source filters")
-            self._indent_up()
             for str in json['source-filter']:
                 prefix = ipaddress.ip_network(str)
-                self._indent(prefix.with_prefixlen)
                 if prefix in config.source_filter:
-                    logger.warning("Ignoring duplicate source filter: {0:s}"
-                                   .format(prefix))
+                    self._warning("Ignoring duplicate source filter: {0:s}"
+                                  .format(prefix))
                 else:
                     config.source_filter.append(prefix)
-            self._indent_down()
 
-        if 'flow-mirror' in json.keys():
-            self._indent("Setting flow mirrors")
-            self._indent_up()
+        try:
+            self._read_dynamic_source_filters(config)
+        except Exception as e:
+            self._warning("Ignoring dynamic source filters: {}".format(e))
+            config.source_filter_d = []
             
-            def format_l4_port(spec):
-                return("port 0x{0:04X}({0:d}) mask 0x{1:04X}".format(
-                    spec['port'], spec['mask']))
+        if 'flow-mirror' in json.keys():
+            def add_flow(flow_in):
+                flow = flow_in.copy()
+                flow.pop('bidir', None)
+                flow.pop('enable', None)
+                flow['src'] = ipaddress.ip_network(flow['src'])
+                flow['dst'] = ipaddress.ip_network(flow['dst'])
 
-            def add_flow(flow_id, flow):
-                src = ipaddress.ip_network(flow['src'])
-                dst = ipaddress.ip_network(flow['dst'])
-                src_port = flow['src_port']
-                dst_port = flow['dst_port']
+                if flow['src'].version != flow['dst'].version:
+                    global json
+                    raise semantic_error("Address family mismatch " +
+                                         "in flow mirror rule: {}".
+                                         format(json.dumps(flow_in)))
 
-                self._indent("[{0:d}] {1:s} {2:s} -> {3:s} {4:s}".format(
-                    flow_id,
-                    src.with_prefixlen, format_l4_port(src_port),
-                    dst.with_prefixlen, format_l4_port(dst_port)))
-                if src.version != dst.version:
-                    raise semantic_error("address family mismatch")
-                config.flow_mirror.append([ src, dst, src_port, dst_port, flow_id ])
+                if flow in config.flow_mirror:
+                    global json
+                    self._warning("Ignoring duplicate flow mirror rule: {}".
+                                  format(json.dumps(flow_in)))
+                else:
+                    config.flow_mirror.append(flow)
 
-            flow_id = 1
             for flow in json['flow-mirror']:
-                if 'enable' in flow.keys() and not flow['enable']:
+                if not flow.get('enable', True):
                     continue
-                if (not 'features' in json.keys() or
-                    not 'flow-mirror' in json['features'].keys()):
-                    raise semantic_error("mirror destination missing")
+                add_flow(flow)
+                if flow.get('bidir', False):
+                    add_flow({ 'src': flow['dst'],
+                               'dst': flow['src'],
+                               'src_port': flow['dst_port'],
+                               'dst_port': flow['src_port'] })
 
-                add_flow(flow_id, flow)
-                flow_id += 1
-                if not 'bidir' in flow.keys() or flow['bidir']:
-                    add_flow(flow_id, { 'src': flow['dst'],
-                                        'dst': flow['src'],
-                                        'src_port': flow['dst_port'],
-                                        'dst_port': flow['src_port'] })
-                    flow_id += 1
-            self._indent_down()
+        features = json.get('features', {})
+        for feature, value in features.items():
+            if feature == 'deflect-on-drop':
+                if not re.match("^[0-9]+$", value):
+                    value = self._get_dev_port(value)
+                config.features['deflect-on-drop'] = int(value)
 
-        if 'features' in json.keys():
-            self._indent("Setting features")
-            self._indent_up()
-    
-            for feature, value in json['features'].items():
-                if feature == 'deflect-on-drop':
-                    self._indent("Deflect-on-drop to port " +
-                                 self._format_port(value))
-                    if not re.match("^[0-9]+$", value):
-                        value = self._get_dev_port(value)
-                    config.features['deflect-on-drop'] = int(value)
+            if feature == 'flow-mirror':
+                cfg = value
 
-                if feature == 'flow-mirror':
-                    self._indent("Flow mirror")
-                    self._indent_up()
-                    cfg = value
+                port = cfg['port']
+                if not re.match("^[0-9]+$", port):
+                    port = self._get_dev_port(port)
 
-                    port = cfg['port']
-                    self._indent("Destination port " +
-                                 self._format_port(port))
-                    if not re.match("^[0-9]+$", port):
-                        port = self._get_dev_port(port)
+                if 'max-packet-length' in cfg.keys():
+                    max_pkt_len = cfg['max-packet-length']
+                else:
+                    max_pkt_len = 16384
+                config.features['flow-mirror'] = {
+                    'port': int(port),
+                    'max_pkt_len': max_pkt_len
+                }
 
-                    if 'max-packet-length' in cfg.keys():
-                        max_pkt_len = cfg['max-packet-length']
-                    else:
-                        max_pkt_len = 16384
-                    self._indent("Maximum packet length {0:d}".format(max_pkt_len))
-                    config.features['flow-mirror'] = {
-                        'port': int(port),
-                        'max_pkt_len': max_pkt_len
-                    }
-                    self._indent_down()
+            if feature == 'drop-non-initial-fragments' and value:
+                config.features['drop-non-initial-fragments'] = True
 
-                if feature == 'drop-non-initial-fragments' and value:
-                    self._indent("Drop non-initial fragemnts")
-                    config.features['drop-non-initial-fragments'] = True
+            if feature == 'exclude-ports-from-hash' and value:
+                config.features['exclude-ports-from-hash'] = True
 
-                if feature == 'exclude-ports-from-hash' and value:
-                    self._indent("Exclude L4 ports from hash")
-                    config.features['exclude-ports-from-hash'] = True
+        if len(config.flow_mirror) > 0 and 'flow-mirror' not in features.keys():
+            raise semantic_error("Flow mirror feature configuration required " +
+                                 "if enabled flow mirror rules are present")
 
-            self._indent_down()
         return config
 
     def _set_action_selector(self, method, group, members):
@@ -415,13 +389,9 @@ class PacketBroker:
               { 'name': '$ACTION_MEMBER_STATUS',
                 'bool_arr_val': status } ])
 
-    def push(self, config):
+    def _push(self, config):
         get_dev_port = self._get_dev_port
-        format_port = self._format_port
         
-        self._indent("Programming tables")
-        self._indent_up()
-
         ### Action profile and selector
         ## Order matters here
         self.t.forward.clear()
@@ -437,15 +407,11 @@ class PacketBroker:
                 dev_port = get_dev_port(port)
                 member['id'] = member_id
                 member['status'] = False
-                self._indent("Adding action profile member {0:d} port {1:s}".
-                       format(member_id, format_port(port)))
                 self.t.port_groups.entry_add(
                     [ { 'name': '$ACTION_MEMBER_ID', 'value': member_id } ],
                     'act_send',
                     [ { 'name': 'egress_port', 'val': dev_port } ])
                 member_id += 1
-
-            self._indent("Adding action selector group #{0:d}".format(group))
             self._set_action_selector(self.t.port_groups_sel.entry_add, group, members)
 
         self.t.select_output.clear()
@@ -455,8 +421,6 @@ class PacketBroker:
             dev_port = get_dev_port(port)
             vlans = dict['vlans']
             egress_group = dict['egress_group']
-            self._indent("Output group for port {0:s} is {1:d}".
-                         format(port, egress_group))
             self.t.select_output.entry_add(
                 [ { 'name': 'ingress_port', 'value': dev_port } ],
                 'act_output_group',
@@ -478,7 +442,7 @@ class PacketBroker:
 
         self.t.filter_ipv4.clear()
         self.t.filter_ipv6.clear()
-        for prefix in config.source_filter:
+        for prefix in (config.source_filter + config.source_filter_d):
             if prefix.version == 4:
                 tbl = self.t.filter_ipv4
                 ## Makes entry_add() accept "src_addr" as a string rather than
@@ -496,12 +460,7 @@ class PacketBroker:
         self.t.mirror_ipv6.clear()
         if 'flow-mirror' in config.features.keys():
             for flow in config.flow_mirror:
-                src = flow[0]
-                dst = flow[1]
-                src_port = flow[2]
-                dst_port = flow[3]
-                id = flow[4]
-                if src.version == 4:
+                if flow['src'].version == 4:
                     tbl = self.t.mirror_ipv4
                     tbl.table.info.key_field_annotation_add("src_addr", "ipv4")
                     tbl.table.info.key_field_annotation_add("dst_addr", "ipv4")
@@ -509,20 +468,21 @@ class PacketBroker:
                     tbl = self.t.mirror_ipv6
                     tbl.table.info.key_field_annotation_add("src_addr", "ipv6")
                     tbl.table.info.key_field_annotation_add("dst_addr", "ipv6")
-                try:
-                    tbl.entry_add(
-                        [ { 'name': 'src_addr', 'value': src.network_address.exploded,
-                            'mask': int(src.netmask) },
-                          { 'name': 'dst_addr', 'value': dst.network_address.exploded,
-                            'mask': int(dst.netmask) },
-                          { 'name': 'src_port', 'value': src_port['port'],
-                            'mask': src_port['mask'] },
-                          { 'name': 'dst_port', 'value': dst_port['port'],
-                            'mask': dst_port['mask'] } ],
-                        'act_mirror',
-                        [ { 'name': 'mirror_session', 'val': MIRROR_SESSION_ID } ])
-                except Exception as e:
-                    logger.error("error while programming flow mirror rule #{0:d}: {1}".format(id, e))
+                tbl.entry_add(
+                    [ { 'name': 'src_addr',
+                        'value': flow['src'].network_address.exploded,
+                        'mask': int(flow['src'].netmask) },
+                      { 'name': 'dst_addr',
+                        'value': flow['dst'].network_address.exploded,
+                        'mask': int(flow['dst'].netmask) },
+                      { 'name': 'src_port',
+                        'value': flow['src_port']['port'],
+                        'mask': flow['src_port']['mask'] },
+                      { 'name': 'dst_port',
+                        'value': flow['dst_port']['port'],
+                        'mask': flow['dst_port']['mask'] } ],
+                    'act_mirror',
+                    [ { 'name': 'mirror_session', 'val': MIRROR_SESSION_ID } ])
             
             flow_mirror = config.features['flow-mirror']
             self.t.mirror_cfg.entry_add(
@@ -534,32 +494,21 @@ class PacketBroker:
                   { 'name': '$ucast_egress_port_valid', 'bool_val': True },
                   { 'name': '$max_pkt_len', 'val': flow_mirror['max_pkt_len'] } ])
             
-        self._indent_down()
-
-        self._indent("Programming features")
-        self._indent_up()
-
         self.t.drop.default_entry_reset()
         self.t.maybe_drop_fragment.default_entry_reset()
         self.t.maybe_exclude_l4.default_entry_reset()
 
         if 'deflect-on-drop' in config.features.keys():
-            self._indent("deflect-on-drop to physical port {0:d}".
-                         format(config.features['deflect-on-drop']))
             self.t.drop.default_entry_set(
                 'ig_ctl.ctl_drop_packet.send_to_port',
                 [ { 'name': 'port',  'val': config.features['deflect-on-drop'] } ])
 
         if config.features['drop-non-initial-fragments']:
-            self._indent("drop-non-initial-fragments")
             self.t.maybe_drop_fragment.default_entry_set('act_mark_to_drop')
 
         if  config.features['exclude-ports-from-hash']:
-            self._indent("exclude-ports-from-hash")
             self.t.maybe_exclude_l4.default_entry_set('act_exclude_l4')
 
-        self._indent_down()
-            
         for port, pconfig in sorted(config.ports.items()):
             dev_port = get_dev_port(port)
 
@@ -569,8 +518,8 @@ class PacketBroker:
                 else:
                     method = self.t.port.entry_mod
                     if self.config.ports[port]['shutdown'] != pconfig['shutdown']:
-                        logger.info("port {0} administrative status changed to {1}".
-                              format(port, 'down' if pconfig['shutdown'] else 'up'))
+                        self._info("port {0} administrative status changed to {1}".
+                                   format(port, 'down' if pconfig['shutdown'] else 'up'))
                 del self.config.ports[port]
             else:
                 method = self.t.port.entry_add
@@ -595,8 +544,6 @@ class PacketBroker:
 
         for port in sorted(self.config.ports.keys()):
             dev_port = get_dev_port(port)
-            self._indent("Removing port {0} (phys port {1})".
-                         format(port, dev_port))
             self.t.port.entry_del([ { 'name': '$DEV_PORT', 'value': dev_port } ])
             self.ifmibs[dev_port].delete()
             self.ifmibs.pop(dev_port, None)
@@ -643,3 +590,156 @@ class PacketBroker:
 
                 self._set_action_selector(self.t.port_groups_sel.entry_mod,
                                           group, members)
+
+    def handle_request(self, peer, req):
+        self._msgs_clear()
+        result = None
+
+        command = req['command']
+        handler = getattr(self, '_cmd_' + command, None)
+        if handler is None:
+            self._error("Invalid command '{}' from {}".format(command, peer[0]))
+            success = False
+        else:
+            try:
+                result = handler(req, peer[0])
+                success = True
+            except Exception as e:
+                self._error("Command '{}' failed: {}".format(command, e))
+                success = False
+
+        for msg in self.msgs:
+            logger.log(msg['level'], msg['msg'])
+
+        return {
+            'success': success,
+            'msgs': self.msgs,
+            'result': result
+        }
+
+    def _cmd_reload(self, req, peer):
+
+        logger.info("Reload requested by {}".format(peer))
+        try:
+            json = self._read()
+        except Exception as e:
+            raise Exception("Error reading configuration: {}".format(e))
+
+        if json is not None:
+            try:
+                config = self._parse(json)
+            except Exception as e:
+                raise Exception("Error parsing configuration: {}".format(e))
+
+            try:
+                self._push(config)
+            except Exception as e:
+                self._error("This is unexpected and may leave the hardware "
+                            + "in an undefined state")
+                raise Exception("Error pushing configuration: {}".format(e))
+        return None
+
+    def _cmd_show(self, req, peer):
+        c = self.config
+        items = {
+            'ports': 'ports',
+            'groups': 'groups',
+            'ingress': 'ingress',
+            'source-filter': 'source_filter',
+            'source-filter-dynamic': 'source_filter_d',
+            'flow-mirror': 'flow_mirror',
+            'features': 'features'
+        }
+        result = {}
+
+        for item in req['args']:
+            result[item] = getattr(c, items[item])
+        return result
+
+    def _cmd_dump(self, req, peer):
+
+        def vplen2prefix(vplen):
+            return addr['value']+'/'+str(addr['prefix_len'])
+
+        def filter(key, data, result):
+            result.append({
+                'prefix': vplen2prefix(key['src']),
+                'counters': {
+                    'packets': data[u'$COUNTER_SPEC_PKTS'],
+                    'bytes': data[u'$COUNTER_SPEC_BYTES']
+                }
+            })
+
+        def mirror(key, data, result):
+            result.append(key)
+
+        def default(key, data, result):
+            result.append({'key': key, 'data': data})
+
+        funcs = {
+            'filter_ipv4': filter,
+            'filter_ipv6': filter,
+            'mirror_ipv4': mirror,
+            'mirror_ipv6': mirror
+        }
+
+        result = []
+        for name in req['args']:
+            for data, key in (getattr(self.t, name).
+                              entry_get_iterator([], from_hw = True)):
+                func = funcs.get(name, default)
+                func(key.to_dict(), data.to_dict(), result)
+        return result
+
+    def _add_remove(self, mode, req, peer):
+        config = self.config
+
+        def source_filter(prefixes):
+            tables = {
+                4: self.t.filter_ipv4,
+                6: self.t.filter_ipv6
+            }
+            for str in prefixes:
+                prefix = ipaddress.ip_network(str)
+                if mode == 'add':
+                    if prefix in config.source_filter + config.source_filter_d:
+                        raise Exception("Duplicate source filter: {}".
+                                        format(prefix))
+                    tables[prefix.version].entry_add(
+                        [ { 'name': 'src_addr',
+                            'value': prefix.network_address.exploded,
+                            'prefix_len': prefix.prefixlen } ],
+                        'act_drop', [])
+                    self._info("Added source filter {}".format(prefix))
+                    config.source_filter_d.append(prefix)
+                else:
+                    if  prefix in config.source_filter:
+                        raise Exception("Cannot remove persistent source " +
+                                        "filter: {}".format(prefix))
+                    if not prefix in config.source_filter_d:
+                        raise Exception("Source filter does not exist: {}".
+                                        format(prefix))
+                    tables[prefix.version].entry_del(
+                        [ { 'name': 'src_addr',
+                            'value': prefix.network_address.exploded,
+                            'prefix_len': prefix.prefixlen } ])
+                    self._info("Removed source filter {}".format(prefix))
+                    config.source_filter_d.remove(prefix)
+                self._dump_dynamic_source_filters()
+
+        items = {
+            'source-filter': {
+                'func': source_filter
+            }
+        }
+
+        for item, data in req['args'].items():
+            logger.info("{} {} requested by {}".format(mode, item, peer))
+            items[item]['func'](data)
+        return None
+
+    def _cmd_add(self, req, peer):
+        return self._add_remove('add', req, peer)
+
+    def _cmd_remove(self, req, peer):
+        return self._add_remove('remove', req, peer)

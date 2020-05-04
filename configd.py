@@ -41,7 +41,7 @@ parser.add_argument('--connect-retries', help=
 parser.add_argument('--listen-on', help=
                     """The addresses to listen on for communication with
                     the brokerctl command""",
-                    type=str, default='localhost')
+                    type=str, default='')
 parser.add_argument('--port', help=
                     """The port to use for communication with the
                     brokerctl command""",

@@ -658,12 +658,10 @@ class PacketBroker:
 
     def _cmd_dump(self, req, peer):
 
-        def vplen2prefix(vplen):
-            return addr['value']+'/'+str(addr['prefix_len'])
-
         def filter(key, data, result):
+            addr = key['src_addr']
             result.append({
-                'prefix': vplen2prefix(key['src']),
+                'prefix': addr['value']+'/'+str(addr['prefix_len']),
                 'counters': {
                     'packets': data[u'$COUNTER_SPEC_PKTS'],
                     'bytes': data[u'$COUNTER_SPEC_BYTES']
@@ -705,6 +703,9 @@ class PacketBroker:
                     if prefix in config.source_filter + config.source_filter_d:
                         raise Exception("Duplicate source filter: {}".
                                         format(prefix))
+                    ## Makes entry_add() accept "src_addr" as a string rather than
+                    ## a byte array
+                    tables[prefix.version].table.info.key_field_annotation_add("src_addr", "ipv4")
                     tables[prefix.version].entry_add(
                         [ { 'name': 'src_addr',
                             'value': prefix.network_address.exploded,

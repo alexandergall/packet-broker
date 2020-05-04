@@ -10,8 +10,8 @@ def reload(args):
 
 def show(args):
     item = args.command_1
-    if item == 'source-filter' and args.dynamic:
-        return [ 'source-filter-dynamic' ]
+    if item == 'source-filter':
+        return [ item, 'source-filter-dynamic' ]
     return [ item ]
 
 def dump(args):
@@ -93,12 +93,6 @@ parse_tree = {
                 },
                 'source-filter': {
                     'help': "Source filters",
-                    'arguments': {
-                        '--dynamic': {
-                            'help': "Show dynamic filters",
-                            'action': 'store_true'
-                        }
-                    }
                 },
                 'flow-mirror': {
                     'help': "Flow mirror rules",

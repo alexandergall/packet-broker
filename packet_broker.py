@@ -1,7 +1,7 @@
 import os
 import logging
 import re
-import json
+import json as JSON
 import jsonschema
 import ipaddress
 import mib
@@ -85,7 +85,7 @@ class semantic_error(Exception):
 
 def json_load(name):
     with open(name) as file:
-        parsed = json.load(file)
+        parsed = JSON.load(file)
     file.close()
     return parsed
 
@@ -221,6 +221,8 @@ class PacketBroker:
 
     def _read_dynamic_source_filters(self, config):
         file = self.config_dir + "/source_filter_dynamic"
+        if not os.path.exists(file):
+            return
         try:
             f = open(file, "r")
         except Exception as e:
@@ -320,15 +322,13 @@ class PacketBroker:
                 flow['dst'] = ipaddress.ip_network(flow['dst'])
 
                 if flow['src'].version != flow['dst'].version:
-                    global json
                     raise semantic_error("Address family mismatch " +
                                          "in flow mirror rule: {}".
-                                         format(json.dumps(flow_in)))
+                                         format(JSON.dumps(flow_in)))
 
                 if flow in config.flow_mirror:
-                    global json
                     self._warning("Ignoring duplicate flow mirror rule: {}".
-                                  format(json.dumps(flow_in)))
+                                  format(JSON.dumps(flow_in)))
                 else:
                     config.flow_mirror.append(flow)
 

@@ -39,6 +39,8 @@ tables = {
     'ingress_untagged': ctls['vlan'] + '.tbl_ingress_untagged',
     ## Keys: ingress_port, ingress_vid
     'ingress_tagged': ctls['vlan'] + '.tbl_ingress_tagged',
+    ## Keys: ingress_port, ingress_vid, src_mac_addr
+    'ingress_mac_rewrite': ctls['vlan'] + '.tbl_ingress_mac_rewrite',
     ## Keys: src_addr
     'filter_ipv4': ctls['filter_ipv4'] + '.tbl_filter_source_ipv4',
     ## Keys: src_addr
@@ -416,6 +418,7 @@ class PacketBroker:
 
         self.t.select_output.clear()
         self.t.ingress_untagged.clear()
+        self.t.ingress_mac_rewrite.clear()
         self.t.ingress_tagged.clear()
         for port, dict in sorted(config.ingress.items()):
             dev_port = get_dev_port(port)
@@ -439,6 +442,20 @@ class PacketBroker:
                           { 'name': 'ingress_vid', 'value': rule['in'] } ],
                         'act_rewrite_vlan',
                         [ { 'name': 'vid', 'val': rule['out'] } ])
+                    if "src-mac-rewrite" in rule.keys():
+                        for addr, new_addr in rule["src-mac-rewrite"].items():
+                            self.t.ingress_mac_rewrite.table.info.\
+                                key_field_annotation_add("src_mac_addr", "mac")
+                            self.t.ingress_mac_rewrite.table.info.\
+                                data_field_annotation_add("mac_addr",
+                                                          "act_rewrite_src_mac",
+                                                          "mac")
+                            self.t.ingress_mac_rewrite.entry_add(
+                                [ { 'name': 'ingress_port', 'value': dev_port },
+                                  { 'name': 'ingress_vid', 'value': rule['in'] },
+                                  { 'name': 'src_mac_addr', 'value': addr } ],
+                                'act_rewrite_src_mac',
+                                [ { 'name': 'mac_addr', 'val': new_addr } ])
 
         self.t.filter_ipv4.clear()
         self.t.filter_ipv6.clear()

@@ -46,8 +46,26 @@ control ctl_push_or_rewrite_vlan(
         const default_action = act_mark_to_drop(ig_md);
     }
 
+    action act_rewrite_src_mac(mac_addr_t mac_addr) {
+        hdr.ethernet.src_mac_addr = mac_addr;
+    }
+
+    table tbl_ingress_mac_rewrite {
+        key = {
+            ig_intr_md.ingress_port   : exact @name("ingress_port");
+            hdr.vlan.vid              : exact @name("ingress_vid");
+            hdr.ethernet.src_mac_addr : exact @name("src_mac_addr");
+        }
+        actions = {
+            act_rewrite_src_mac;
+            @defaultonly NoAction;
+        }
+        const default_action = NoAction;
+    }
+
     apply {
         if (hdr.vlan.isValid()) {
+            tbl_ingress_mac_rewrite.apply();
             tbl_ingress_tagged.apply();
         } else {
             tbl_ingress_untagged.apply();

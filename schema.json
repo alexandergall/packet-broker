@@ -141,6 +141,16 @@
                                                     },
                                                     "out": {
                                                         "$ref": "#/definitions/vlan"
+                                                    },
+                                                    "src-mac-rewrite": {
+                                                        "type": "object",
+                                                        "patternProperties": {
+                                                            "^([a-f0-9]{2}:){5}[a-f0-9]{2}$": {
+                                                                "type": "string",
+                                                                "pattern": "^([a-f0-9]{2}:){5}[a-f0-9]{2}$"
+                                                            }
+                                                        },
+                                                        "additionalProperties": false
                                                     }
                                                 },
                                                 "additionalProperties": false

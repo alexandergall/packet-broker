@@ -20,6 +20,7 @@ def dump(args):
         'source-filter': [ 'filter_ipv4', 'filter_ipv6' ],
         'flow-mirror': [ 'mirror_ipv4', 'mirror_ipv6' ],
         'ingress': [ 'ingress_tagged', 'ingress_untagged' ],
+        'mac-rewrite': [ 'ingress_mac_rewrite' ],
         'select-output': [ 'select_output' ],
         'forward': [ 'forward'],
         'port-groups': [ 'port_groups' ],
@@ -114,6 +115,9 @@ parse_tree = {
                 },
                 'ingress': {
                     'help': "Ingress VLAN push/rewrite rules"
+                },
+                'mac-rewrite': {
+                    'help': "Ingress source MAC rewrite rules"
                 },
                 'select-output': {
                     'help': "Ingress port to output group mapping"

@@ -92,6 +92,17 @@
                     "maximum": 65535
                 }
             }
+        },
+
+        "mac-rewrite": {
+            "type": "object",
+            "patternProperties": {
+                "^([a-f0-9]{2}:){5}[a-f0-9]{2}$": {
+                    "type": "string",
+                    "pattern": "^([a-f0-9]{2}:){5}[a-f0-9]{2}$"
+                }
+            },
+            "additionalProperties": false
         }
     },
     
@@ -142,12 +153,14 @@
                                                     "out": {
                                                         "$ref": "#/definitions/vlan"
                                                     },
-                                                    "src-mac-rewrite": {
+                                                    "mac-rewrite": {
                                                         "type": "object",
-                                                        "patternProperties": {
-                                                            "^([a-f0-9]{2}:){5}[a-f0-9]{2}$": {
-                                                                "type": "string",
-                                                                "pattern": "^([a-f0-9]{2}:){5}[a-f0-9]{2}$"
+                                                        "properties": {
+                                                            "src": {
+                                                                "$ref": "#/definitions/mac-rewrite"
+                                                            },
+                                                            "dst": {
+                                                                "$ref": "#/definitions/mac-rewrite"
                                                             }
                                                         },
                                                         "additionalProperties": false

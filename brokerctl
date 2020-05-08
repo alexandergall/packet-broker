@@ -20,7 +20,7 @@ def dump(args):
         'source-filter': [ 'filter_ipv4', 'filter_ipv6' ],
         'flow-mirror': [ 'mirror_ipv4', 'mirror_ipv6' ],
         'ingress': [ 'ingress_tagged', 'ingress_untagged' ],
-        'mac-rewrite': [ 'ingress_mac_rewrite' ],
+        'mac-rewrite': [ 'ingress_src_mac_rewrite', 'ingress_dst_mac_rewrite' ],
         'select-output': [ 'select_output' ],
         'forward': [ 'forward'],
         'port-groups': [ 'port_groups' ],

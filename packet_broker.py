@@ -40,7 +40,9 @@ tables = {
     ## Keys: ingress_port, ingress_vid
     'ingress_tagged': ctls['vlan'] + '.tbl_ingress_tagged',
     ## Keys: ingress_port, ingress_vid, src_mac_addr
-    'ingress_mac_rewrite': ctls['vlan'] + '.tbl_ingress_mac_rewrite',
+    'ingress_src_mac_rewrite': ctls['vlan'] + '.tbl_ingress_src_mac_rewrite',
+    ## Keys: ingress_port, ingress_vid, src_mac_addr
+    'ingress_dst_mac_rewrite': ctls['vlan'] + '.tbl_ingress_dst_mac_rewrite',
     ## Keys: src_addr
     'filter_ipv4': ctls['filter_ipv4'] + '.tbl_filter_source_ipv4',
     ## Keys: src_addr
@@ -418,7 +420,8 @@ class PacketBroker:
 
         self.t.select_output.clear()
         self.t.ingress_untagged.clear()
-        self.t.ingress_mac_rewrite.clear()
+        self.t.ingress_src_mac_rewrite.clear()
+        self.t.ingress_dst_mac_rewrite.clear()
         self.t.ingress_tagged.clear()
         for port, dict in sorted(config.ingress.items()):
             dev_port = get_dev_port(port)
@@ -442,19 +445,28 @@ class PacketBroker:
                           { 'name': 'ingress_vid', 'value': rule['in'] } ],
                         'act_rewrite_vlan',
                         [ { 'name': 'vid', 'val': rule['out'] } ])
-                    if "src-mac-rewrite" in rule.keys():
-                        for addr, new_addr in rule["src-mac-rewrite"].items():
-                            self.t.ingress_mac_rewrite.table.info.\
-                                key_field_annotation_add("src_mac_addr", "mac")
-                            self.t.ingress_mac_rewrite.table.info.\
-                                data_field_annotation_add("mac_addr",
-                                                          "act_rewrite_src_mac",
-                                                          "mac")
-                            self.t.ingress_mac_rewrite.entry_add(
+                    rewrite = rule.get("mac-rewrite", {})
+                    for dir, spec in rewrite.items():
+                        ## Note: the rewrite table is applied before
+                        ## the ingress_tagged table, hence the value
+                        ## of the VLAN tag must be the one of the
+                        ## original packet.
+                        if dir == "src":
+                            tbl = self.t.ingress_src_mac_rewrite
+                        else:
+                            tbl = self.t.ingress_dst_mac_rewrite
+                        field = dir + "_mac_addr"
+                        action = "act_rewrite_" + dir + "_mac"
+                        for addr, new_addr in spec.items():
+                            tbl.table.info.key_field_annotation_add(field, "mac")
+                            tbl.table.info.data_field_annotation_add("mac_addr",
+                                                                     action,
+                                                                     "mac")
+                            tbl.entry_add(
                                 [ { 'name': 'ingress_port', 'value': dev_port },
                                   { 'name': 'ingress_vid', 'value': rule['in'] },
-                                  { 'name': 'src_mac_addr', 'value': addr } ],
-                                'act_rewrite_src_mac',
+                                  { 'name': field, 'value': addr } ],
+                                action,
                                 [ { 'name': 'mac_addr', 'val': new_addr } ])
 
         self.t.filter_ipv4.clear()

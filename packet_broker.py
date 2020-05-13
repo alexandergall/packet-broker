@@ -19,6 +19,7 @@ ctls = {
     'mirror_ipv6' : 'pipe.ig_ctl.ctl_mirror_flows_ipv6',
     'maybe_exclude_l4_from_hash' : 'pipe.ig_ctl.ctl_maybe_exclude_l4_from_hash',
     'maybe_drop_fragment' : 'pipe.ig_ctl.ctl_maybe_drop_fragment',
+    'maybe_drop_non_ip' : 'pipe.ig_ctl.ctl_maybe_drop_non_ip',
     'drop' : 'pipe.ig_ctl.ctl_drop_packet'
 }
 tables = {
@@ -64,7 +65,9 @@ tables = {
     ## Keys: None
     'drop': ctls['drop'] + '.tbl_drop',
     ## Keys: None
-    'maybe_drop_fragment': ctls['maybe_drop_fragment'] + '.tbl_maybe_drop_fragment'
+    'maybe_drop_fragment': ctls['maybe_drop_fragment'] + '.tbl_maybe_drop_fragment',
+    ## Keys: None
+    'maybe_drop_non_ip': ctls['maybe_drop_non_ip'] + '.tbl_maybe_drop_non_ip'
 }
 
 ## Mappings of values of the $SPEED field in the
@@ -104,7 +107,8 @@ class Config:
         self.flow_mirror = []
         self.features = {
             'drop-non-initial-fragments': False,
-            'exclude-ports-from-hash': False
+            'exclude-ports-from-hash': False,
+            'drop-non-ip': False
         }
 
 class PacketBroker:
@@ -375,6 +379,9 @@ class PacketBroker:
             if feature == 'exclude-ports-from-hash' and value:
                 config.features['exclude-ports-from-hash'] = True
 
+            if feature == 'drop-non-ip' and value:
+                config.features['drop-non-ip'] = True
+
         if len(config.flow_mirror) > 0 and 'flow-mirror' not in features.keys():
             raise semantic_error("Flow mirror feature configuration required " +
                                  "if enabled flow mirror rules are present")
@@ -526,6 +533,7 @@ class PacketBroker:
         self.t.drop.default_entry_reset()
         self.t.maybe_drop_fragment.default_entry_reset()
         self.t.maybe_exclude_l4.default_entry_reset()
+        self.t.maybe_drop_non_ip.default_entry_reset()
 
         if 'deflect-on-drop' in config.features.keys():
             self.t.drop.default_entry_set(
@@ -537,6 +545,9 @@ class PacketBroker:
 
         if  config.features['exclude-ports-from-hash']:
             self.t.maybe_exclude_l4.default_entry_set('act_exclude_l4')
+
+        if  config.features['drop-non-ip']:
+            self.t.maybe_drop_non_ip.default_entry_set('act_mark_to_drop')
 
         for port, pconfig in sorted(config.ports.items()):
             dev_port = get_dev_port(port)

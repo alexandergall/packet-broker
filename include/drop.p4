@@ -53,4 +53,20 @@ control ctl_maybe_drop_fragment(inout ingress_metadata_t ig_md)
     }
 }
 
+control ctl_maybe_drop_non_ip(inout ingress_metadata_t ig_md)
+{
+    table tbl_maybe_drop_non_ip {
+        actions = {
+            act_mark_to_drop(ig_md);
+            NoAction;
+        }
+        size = 1;
+        default_action = NoAction;
+    }
+
+    apply {
+        tbl_maybe_drop_non_ip.apply();
+    }
+}
+
 #endif // _DROP_P4_

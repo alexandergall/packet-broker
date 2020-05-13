@@ -48,6 +48,7 @@ control ig_ctl(
             ctl_mirror_flows_ipv6.apply(hdr, ig_md, ig_dprsr_md);
         } else {
             ctl_calc_ethernet_hash.apply(hdr, sel_hash);
+            ctl_maybe_drop_non_ip.apply(ig_md);
         }
         ctl_forward_packet.apply(ig_intr_md, sel_hash, ig_md, ig_tm_md);
 

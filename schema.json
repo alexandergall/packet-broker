@@ -274,6 +274,10 @@
                 
                 "exclude-ports-from-hash": {
                     "type": "boolean"
+                },
+
+                "drop-non-ip": {
+                    "type": "boolean"
                 }
             },
             "additionalProperties": false

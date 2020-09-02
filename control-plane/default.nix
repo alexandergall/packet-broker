@@ -1,5 +1,9 @@
-with import <nixpkgs>;
+let
+  pkgs = import <nixpkgs>;
+  bf-sde = import ../sde-version.nix pkgs;
+in
 
+with pkgs;
 python2Packages.buildPythonApplication rec {
   pname = "packet-broker-configd";
   version = "0.1";
@@ -7,7 +11,7 @@ python2Packages.buildPythonApplication rec {
   src = ./.;
 
   propagatedBuildInputs = [
-    bf-sde 
+    bf-sde
     (python2.withPackages (ps: with ps; [ jsonschema ipaddress ]))
   ];
   buildInputs = [ makeWrapper ];

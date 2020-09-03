@@ -1,10 +1,9 @@
+{ sde_version, kernel_version }:
+
 let
   pkgs = import <nixpkgs>;
-  bf-sde = import ../sde-version.nix pkgs;
-in
-
-with pkgs;
-python2Packages.buildPythonApplication rec {
+  bf-sde = pkgs.bf-sde.${sde_version}.${kernel_version};
+in with pkgs; python2Packages.buildPythonApplication rec {
   pname = "packet-broker-configd";
   version = "0.1";
 

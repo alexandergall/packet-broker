@@ -2,12 +2,6 @@ import os
 import sys
 import re
 
-SDE = os.environ.get('SDE')
-SDE_INSTALL = os.environ.get('SDE_INSTALL', SDE + '/install')
-BF_RUNTIME_LIB = SDE_INSTALL + '/lib/python2.7/site-packages/tofino/'
-sys.path.append(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)),
-        './', BF_RUNTIME_LIB))
 import bfrt_grpc.client as gc
 
 class Table:

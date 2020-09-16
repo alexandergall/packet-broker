@@ -16,6 +16,6 @@ in with pkgs; python2Packages.buildPythonApplication rec {
   buildInputs = [ makeWrapper ];
 
   postInstall = ''
-    wrapProgram "$out/bin/configd.py" --set SDE "${bf-sde}" --set SDE_INSTALL "${bf-sde}/install"
+    wrapProgram "$out/bin/configd.py" --set PYTHONPATH "${bf-sde}/install/lib/python2.7/site-packages/tofino"
   '';
 }

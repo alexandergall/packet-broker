@@ -5,5 +5,9 @@ setuptools.setup(
     version="0.0.1",
     scripts = [ "configd.py", "brokerctl" ],
     py_modules = [ "packet_broker",
-                   "bfrt", "mib" ]
+                   "bfrt", "mib" ],
+    install_requires = [
+        "jsonschema",
+        "ipaddress",
+    ]
 )

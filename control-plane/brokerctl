@@ -172,6 +172,10 @@ if not args.host:
     args.host = [ 'localhost' ]
 
 result = {}
+rc = 0
 for host in args.host:
     result[host] = request(host, args.port, args.command_0, args.func(args))
+    if not result[host]['success']:
+        rc = 1
 print(json.dumps(result, indent=2))
+sys.exit(rc)

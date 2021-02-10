@@ -1,6 +1,7 @@
 import os
 import sys
 import re
+import inspect
 
 import bfrt_grpc.client as gc
 
@@ -88,15 +89,18 @@ class Table:
 
 class Bfrt:
     def __init__(self, program, retries, addr = 'localhost:50052',
-                 client_id = 0, device_id = 0, is_master = True):
+                 client_id = 0, device_id = 0):
         ## Due to a bug in client.py, the num_tries parameter is currently
         ## fixed at 5.
         re_retries = int((retries-1)/5) + 1
         for i in range (0, re_retries):
+            ## The "is_master" argument has been removed in SED 9.4.0
+            args = dict(client_id = client_id, num_tries=retries,
+                        device_id = device_id)
+            if "is_master" in inspect.getargspec(gc.ClientInterface.__init__).args:
+                args["is_master"] = True
             try:
-                self.intf = gc.ClientInterface(addr, client_id = client_id,
-                                               num_tries=retries, device_id = device_id,
-                                               is_master = is_master)
+                self.intf = gc.ClientInterface(addr, **args)
             except:
                 if i < re_retries - 1:
                     continue

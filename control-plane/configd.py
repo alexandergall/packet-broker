@@ -9,9 +9,6 @@ import socket, select
 import json
 import bfrt, packet_broker
 
-## XXX
-import pprint
-
 class JSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if hasattr(obj, 'compressed'):
@@ -68,18 +65,24 @@ logger.info("Listening on {}/{} for connections".
 bfrt = bfrt.Bfrt("packet_broker", retries = args.connect_retries)
 broker = packet_broker.PacketBroker(bfrt, args.config_dir, args.ifmibs_dir)
 
+def tear_down_and_exit(rc):
+    ## The method has been renamed in SDE 9.4.0
+    if hasattr(bfrt.intf, '_tear_down_stream'):
+        bfrt.intf._tear_down_stream()
+    else:
+        bfrt.intf.tear_down_stream()
+    sys.exit(rc)
+
 if not broker.handle_request(('self', 0), { 'command': 'reload'})['success']:
-    bfrt.intf._tear_down_stream()
-    sys.exit(1)
+    tear_down_and_exit(1)
 
 signals = dict((getattr(signal, n), n) \
                for n in dir(signal) if n.startswith('SIG') and '_' not in n )
 
 def exit_handler(signal, frame):
     logger.info("Received {}, exiting".format(signals[signal]))
-    bfrt.intf._tear_down_stream()
     s.close()
-    sys.exit(0)
+    tear_down_and_exit(0)
 
 signal.signal(signal.SIGTERM, exit_handler)
 signal.signal(signal.SIGINT, exit_handler)

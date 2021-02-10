@@ -521,7 +521,10 @@ class PacketBroker:
                     [ { 'name': 'mirror_session', 'val': MIRROR_SESSION_ID } ])
             
             flow_mirror = config.features['flow-mirror']
-            self.t.mirror_cfg.entry_add(
+            method = self.t.mirror_cfg.entry_add
+            if self.t.mirror_cfg.entry_get([ { 'name': '$sid', 'value': MIRROR_SESSION_ID } ]):
+                method = self.t.mirror_cfg.entry_mod
+            method(
                 [ { 'name': '$sid', 'value': MIRROR_SESSION_ID } ],
                 '$normal',
                 [ { 'name': '$session_enable', 'bool_val': True },

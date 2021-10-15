@@ -46,8 +46,12 @@ parser.add_argument('--port', help=
 args = parser.parse_args()
 
 ## Make outputs unbuffered for logging purposes
-sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
-sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 0)
+if sys.version_info < (3, 0):
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
+    sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 0)
+else:
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
+    sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', buffering=1)
 
 logging.basicConfig(level = logging.INFO,
                     format='%(asctime)s.%(msecs)03d %(levelname)s:%(name)s: %(message)s',

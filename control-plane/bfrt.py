@@ -20,12 +20,12 @@ class Table:
     def _mk_key(self, keys):
         if keys is not None:
             return [ self.table.make_key(
-                map(lambda key: gc.KeyTuple(**key), keys)) ]
+                list(map(lambda key: gc.KeyTuple(**key), keys))) ]
         else:
             return None
 
     def _mk_data_tuple(self, data):
-        return map(lambda elt: gc.DataTuple(**elt), data)
+        return list(map(lambda elt: gc.DataTuple(**elt), data))
 
     def _mk_action(self, name, data):
         if name is not None:

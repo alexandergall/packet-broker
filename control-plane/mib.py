@@ -48,7 +48,7 @@ class octetstr_t(SMIv2):
         super(octetstr_t, self).__init__(mib, offset)
 
     def set(self, value):
-        assert(isinstance(value, str))
+        assert(isinstance(value, bytes))
         length = min(len(value), self.size-2)
         struct.pack_into("@H", self.mib.map, self.offset, length)
         struct.pack_into("{0:d}s".format(length),
@@ -169,7 +169,7 @@ class ifmib(MIB):
 
     def set_properties(self, properties):
         p = properties
-        self.set('ifDescr', p['ifDescr'].encode('ascii'))
+        self.set('ifDescr', p['ifDescr'])
         self.set('ifName', p['ifName'])
         self.set('ifAlias', p['ifAlias'])
         self.set('ifMtu', p['ifMtu'])
@@ -177,7 +177,7 @@ class ifmib(MIB):
             self.set('ifSpeed', 4294967295) # RFC3635 sec. 3.2.8
         else:
             self.set('ifSpeed', p['speed'])
-        self.set('ifHighSpeed', p['speed'] / 1000000)
+        self.set('ifHighSpeed', int(p['speed'] / 1000000))
 
     def delete(self):
         self.data_f.close()

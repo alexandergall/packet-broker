@@ -569,8 +569,8 @@ class PacketBroker:
             if method is not None:
                 method([ { 'name': '$DEV_PORT', 'value': dev_port } ],
                        None,
-                       [ { 'name': '$SPEED', 'str_val': pconfig['speed'].encode('ascii') },
-                         { 'name': '$FEC', 'str_val':  pconfig['fec'].encode('ascii') },
+                       [ { 'name': '$SPEED', 'str_val': str(pconfig['speed']) },
+                         { 'name': '$FEC', 'str_val':  str(pconfig['fec']) },
                          { 'name': '$PORT_ENABLE', 'bool_val': not pconfig['shutdown'] },
                          { 'name': '$RX_MTU', 'val': pconfig['mtu'] },
                          { 'name': '$TX_MTU', 'val': pconfig['mtu'] } ])
@@ -578,7 +578,7 @@ class PacketBroker:
                 if dev_port not in self.ifmibs.keys():
                     self.ifmibs[dev_port] = mib.ifmib(self.ifmibs_dir+'/'+re.sub('/', '_', port))
                 self.ifmibs[dev_port].set_properties(
-                    { 'ifDescr': port,
+                    { 'ifDescr': port.encode('ascii'),
                       'ifName': port.encode('ascii'),
                       'ifAlias': pconfig['description'].encode('ascii'),
                       'ifMtu': pconfig['mtu'],

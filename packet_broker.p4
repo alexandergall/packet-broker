@@ -72,7 +72,7 @@ control ig_ctl_dprs(
 
     apply {
         if (ig_dprsr_md.mirror_type == (bit<3>)mirror_session_t.FLOW) {
-            mirror.emit<mirror_header_t>(ig_md.mirror_session, {});
+            mirror.emit(ig_md.mirror_session);
         }
         pkt.emit(hdr);
     }

@@ -18,11 +18,13 @@ action act_mirror(
 
 control ctl_mirror_flows_ipv4(
     in headers hdr,
+    in ingress_intrinsic_metadata_t ig_intr_md,
     inout ingress_metadata_t ig_md,
     inout ingress_intrinsic_metadata_for_deparser_t ig_dprsr_md)
 {
     table tbl_mirror_flows_ipv4 {
         key = {
+            ig_intr_md.ingress_port : ternary @name("ingress_port");
             hdr.ipv4.src_addr  : ternary @name("src_addr");
             hdr.ipv4.dst_addr  : ternary @name("dst_addr");
             ig_md.l4_lookup.word_1 : ternary @name("src_port");
@@ -42,11 +44,13 @@ control ctl_mirror_flows_ipv4(
 
 control ctl_mirror_flows_ipv6(
     in headers hdr,
+    in ingress_intrinsic_metadata_t ig_intr_md,
     inout ingress_metadata_t ig_md,
     inout ingress_intrinsic_metadata_for_deparser_t ig_dprsr_md)
 {
     table tbl_mirror_flows_ipv6 {
         key = {
+            ig_intr_md.ingress_port : ternary @name("ingress_port");
             hdr.ipv6.src_addr  : ternary @name("src_addr");
             hdr.ipv6.dst_addr  : ternary @name("dst_addr"); 
             ig_md.l4_lookup.word_1 : ternary @name("src_port");

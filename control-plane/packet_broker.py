@@ -190,7 +190,8 @@ class PacketBroker:
     def _get_dev_port(self, port):
         info = self.t.port_str_info.entry_get(
             [{ 'name': '$PORT_NAME', 'value': port }])
-        assert(info is not None)
+        if info is None:
+            raise semantic_error("invalid port {0:s}".format(port))
         return info['$DEV_PORT']
 
     def _msgs_clear(self):
@@ -334,6 +335,7 @@ class PacketBroker:
                                          "in flow mirror rule: {}".
                                          format(JSON.dumps(flow_in)))
 
+                flow['ingress-ports'] = [ self._get_dev_port(port) for port in sorted(flow.pop('ingress-ports', [])) ]
                 if flow in config.flow_mirror:
                     self._warning("Ignoring duplicate flow mirror rule: {}".
                                   format(JSON.dumps(flow_in)))
@@ -345,7 +347,8 @@ class PacketBroker:
                     continue
                 add_flow(flow)
                 if flow.get('bidir', False):
-                    add_flow({ 'src': flow['dst'],
+                    add_flow({ 'ingress-ports': flow.get('ingress-ports', []),
+                               'src': flow['dst'],
                                'dst': flow['src'],
                                'src_port': flow['dst_port'],
                                'dst_port': flow['src_port'] })
@@ -496,6 +499,11 @@ class PacketBroker:
         self.t.mirror_ipv6.clear()
         if 'flow-mirror' in config.features.keys():
             for flow in config.flow_mirror:
+                ports = flow['ingress-ports']
+                port_mask = 0x1ff;
+                if len(ports) == 0:
+                    ports = [ 0 ]
+                    port_mask = 0
                 if flow['src'].version == 4:
                     tbl = self.t.mirror_ipv4
                     tbl.table.info.key_field_annotation_add("src_addr", "ipv4")
@@ -504,21 +512,26 @@ class PacketBroker:
                     tbl = self.t.mirror_ipv6
                     tbl.table.info.key_field_annotation_add("src_addr", "ipv6")
                     tbl.table.info.key_field_annotation_add("dst_addr", "ipv6")
-                tbl.entry_add(
-                    [ { 'name': 'src_addr',
-                        'value': flow['src'].network_address.exploded,
-                        'mask': int(flow['src'].netmask) },
-                      { 'name': 'dst_addr',
-                        'value': flow['dst'].network_address.exploded,
-                        'mask': int(flow['dst'].netmask) },
-                      { 'name': 'src_port',
-                        'value': flow['src_port']['port'],
-                        'mask': flow['src_port']['mask'] },
-                      { 'name': 'dst_port',
-                        'value': flow['dst_port']['port'],
-                        'mask': flow['dst_port']['mask'] } ],
-                    'act_mirror',
-                    [ { 'name': 'mirror_session', 'val': MIRROR_SESSION_ID } ])
+                for port in ports:
+                    print("ingress port", port, "mask", port_mask)
+                    tbl.entry_add(
+                        [ { 'name': 'ingress_port',
+                            'value': port,
+                            'mask': port_mask },
+                          { 'name': 'src_addr',
+                            'value': flow['src'].network_address.exploded,
+                            'mask': int(flow['src'].netmask) },
+                          { 'name': 'dst_addr',
+                            'value': flow['dst'].network_address.exploded,
+                            'mask': int(flow['dst'].netmask) },
+                          { 'name': 'src_port',
+                            'value': flow['src_port']['port'],
+                            'mask': flow['src_port']['mask'] },
+                          { 'name': 'dst_port',
+                            'value': flow['dst_port']['port'],
+                            'mask': flow['dst_port']['mask'] } ],
+                        'act_mirror',
+                        [ { 'name': 'mirror_session', 'val': MIRROR_SESSION_ID } ])
             
             flow_mirror = config.features['flow-mirror']
             method = self.t.mirror_cfg.entry_add

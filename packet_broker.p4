@@ -41,11 +41,11 @@ control ig_ctl(
         if (hdr.ipv4.isValid()) {
             ctl_filter_source_ipv4.apply(hdr, ig_md);
             ctl_calc_ipv4_hash.apply(hdr, ig_md, sel_hash);
-            ctl_mirror_flows_ipv4.apply(hdr, ig_md, ig_dprsr_md);
+            ctl_mirror_flows_ipv4.apply(hdr, ig_intr_md, ig_md, ig_dprsr_md);
         } else if (hdr.ipv6.isValid()) {
             ctl_filter_source_ipv6.apply(hdr, ig_md);
             ctl_calc_ipv6_hash.apply(hdr, ig_md, sel_hash);
-            ctl_mirror_flows_ipv6.apply(hdr, ig_md, ig_dprsr_md);
+            ctl_mirror_flows_ipv6.apply(hdr, ig_intr_md, ig_md, ig_dprsr_md);
         } else {
             ctl_calc_ethernet_hash.apply(hdr, sel_hash);
             ctl_maybe_drop_non_ip.apply(ig_md);

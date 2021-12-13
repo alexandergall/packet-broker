@@ -67,6 +67,11 @@
             }
         },
 
+        "logical-port-pattern": {
+            "type": "string",
+            "pattern": "^[0-9]+/[0-9]+$"
+        },
+
         "logical-or-physical-port-pattern": {
             "type": "string",
             "pattern": "^([0-9]+/[0-9]+|[0-9]+)$"
@@ -220,6 +225,13 @@
                 "required": [ "src", "dst", "src_port", "dst_port" ],
 
                 "properties": {
+		    "ingress-ports": {
+			"type": "array",
+
+			"items": {
+			    "$ref": "#/definitions/logical-port-pattern"
+			}
+		    },
                     "src": {
                         "type": "string"
                     },

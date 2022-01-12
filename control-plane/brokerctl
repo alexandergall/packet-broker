@@ -55,7 +55,7 @@ def request(host, port, command, args = None):
     logger.info("Trying {}".format(host))
     s.connect((host, port))
     logger.info("Connected")
-    s.send(json.dumps(req) + "\n")
+    s.send((json.dumps(req) + "\n").encode())
     f = s.makefile()
     line = f.readline()
     resp = json.loads(line)

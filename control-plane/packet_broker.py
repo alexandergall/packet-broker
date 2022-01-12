@@ -17,6 +17,7 @@ ctls = {
     'filter_ipv6' : 'pipe.ig_ctl.ctl_filter_source_ipv6',
     'mirror_ipv4' : 'pipe.ig_ctl.ctl_mirror_flows_ipv4',
     'mirror_ipv6' : 'pipe.ig_ctl.ctl_mirror_flows_ipv6',
+    'mirror_non_ip' : 'pipe.ig_ctl.ctl_mirror_flows_non_ip',
     'maybe_exclude_l4_from_hash' : 'pipe.ig_ctl.ctl_maybe_exclude_l4_from_hash',
     'maybe_drop_fragment' : 'pipe.ig_ctl.ctl_maybe_drop_fragment',
     'maybe_drop_non_ip' : 'pipe.ig_ctl.ctl_maybe_drop_non_ip',
@@ -52,6 +53,8 @@ tables = {
     'mirror_ipv4': ctls['mirror_ipv4'] + '.tbl_mirror_flows_ipv4',
     ## Keys: src_addr, dst_addr, src_port, dst_port
     'mirror_ipv6': ctls['mirror_ipv6'] + '.tbl_mirror_flows_ipv6',
+    ## Keys: ingress_port
+    'mirror_non_ip': ctls['mirror_non_ip'] + '.tbl_mirror_flows_non_ip',
     ## Keys: ingress_port
     'select_output': ctls['forward'] + '.tbl_select_output',
     ## Keys: egress_group
@@ -346,7 +349,7 @@ class PacketBroker:
                 if not flow.get('enable', True):
                     continue
                 add_flow(flow)
-                if flow.get('bidir', False):
+                if flow.get('bidir', False) and not flow.get('non-ip', False):
                     add_flow({ 'ingress-ports': flow.get('ingress-ports', []),
                                'src': flow['dst'],
                                'dst': flow['src'],
@@ -497,6 +500,7 @@ class PacketBroker:
 
         self.t.mirror_ipv4.clear()
         self.t.mirror_ipv6.clear()
+        self.t.mirror_non_ip.clear()
         if 'flow-mirror' in config.features.keys():
             for flow in config.flow_mirror:
                 ports = flow['ingress-ports']
@@ -514,24 +518,32 @@ class PacketBroker:
                     tbl.table.info.key_field_annotation_add("dst_addr", "ipv6")
                 for port in ports:
                     print("ingress port", port, "mask", port_mask)
-                    tbl.entry_add(
-                        [ { 'name': 'ingress_port',
-                            'value': port,
-                            'mask': port_mask },
-                          { 'name': 'src_addr',
-                            'value': flow['src'].network_address.exploded,
-                            'mask': int(flow['src'].netmask) },
-                          { 'name': 'dst_addr',
-                            'value': flow['dst'].network_address.exploded,
-                            'mask': int(flow['dst'].netmask) },
-                          { 'name': 'src_port',
-                            'value': flow['src_port']['port'],
-                            'mask': flow['src_port']['mask'] },
-                          { 'name': 'dst_port',
-                            'value': flow['dst_port']['port'],
-                            'mask': flow['dst_port']['mask'] } ],
-                        'act_mirror',
-                        [ { 'name': 'mirror_session', 'val': MIRROR_SESSION_ID } ])
+                    if flow.get('non-ip', False):
+                        self.t.mirror_non_ip.entry_add(
+                            [ { 'name': 'ingress_port',
+                                'value': port,
+                                'mask': port_mask } ],
+                            'act_mirror',
+                            [ { 'name': 'mirror_session', 'val': MIRROR_SESSION_ID } ])
+                    else:
+                        tbl.entry_add(
+                            [ { 'name': 'ingress_port',
+                                'value': port,
+                                'mask': port_mask },
+                              { 'name': 'src_addr',
+                                'value': flow['src'].network_address.exploded,
+                                'mask': int(flow['src'].netmask) },
+                              { 'name': 'dst_addr',
+                                'value': flow['dst'].network_address.exploded,
+                                'mask': int(flow['dst'].netmask) },
+                              { 'name': 'src_port',
+                                'value': flow['src_port']['port'],
+                                'mask': flow['src_port']['mask'] },
+                              { 'name': 'dst_port',
+                                'value': flow['dst_port']['port'],
+                                'mask': flow['dst_port']['mask'] } ],
+                            'act_mirror',
+                            [ { 'name': 'mirror_session', 'val': MIRROR_SESSION_ID } ])
             
             flow_mirror = config.features['flow-mirror']
             method = self.t.mirror_cfg.entry_add

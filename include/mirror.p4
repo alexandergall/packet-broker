@@ -68,4 +68,26 @@ control ctl_mirror_flows_ipv6(
     }
 }
 
+control ctl_mirror_flows_non_ip(
+    in headers hdr,
+    in ingress_intrinsic_metadata_t ig_intr_md,
+    inout ingress_metadata_t ig_md,
+    inout ingress_intrinsic_metadata_for_deparser_t ig_dprsr_md)
+{
+    table tbl_mirror_flows_non_ip {
+        key = {
+            ig_intr_md.ingress_port : ternary @name("ingress_port");
+        }
+        actions = {
+            act_mirror(ig_md, ig_dprsr_md);
+            @defaultonly NoAction;
+        }
+        const default_action = NoAction;
+    }
+
+    apply {
+        tbl_mirror_flows_non_ip.apply();
+    }
+}
+
 #endif // _MIRROR_P4_

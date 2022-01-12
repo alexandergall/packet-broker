@@ -232,6 +232,9 @@
 			    "$ref": "#/definitions/logical-port-pattern"
 			}
 		    },
+		    "non-ip": {
+			"type": "boolean"
+		    },
                     "src": {
                         "type": "string"
                     },

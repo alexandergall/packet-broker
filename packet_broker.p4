@@ -48,6 +48,7 @@ control ig_ctl(
             ctl_mirror_flows_ipv6.apply(hdr, ig_intr_md, ig_md, ig_dprsr_md);
         } else {
             ctl_calc_ethernet_hash.apply(hdr, sel_hash);
+            ctl_mirror_flows_non_ip.apply(hdr, ig_intr_md, ig_md, ig_dprsr_md);
             ctl_maybe_drop_non_ip.apply(ig_md);
         }
         ctl_forward_packet.apply(ig_intr_md, sel_hash, ig_md, ig_tm_md);
@@ -62,6 +63,8 @@ control ig_ctl(
     
 }
 
+header mirror_header_t {};
+
 control ig_ctl_dprs(
     packet_out pkt,
     inout headers hdr,
@@ -72,7 +75,7 @@ control ig_ctl_dprs(
 
     apply {
         if (ig_dprsr_md.mirror_type == (bit<3>)mirror_session_t.FLOW) {
-            mirror.emit(ig_md.mirror_session);
+            mirror.emit<mirror_header_t>(ig_md.mirror_session, {});
         }
         pkt.emit(hdr);
     }

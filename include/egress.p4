@@ -4,7 +4,6 @@
 #define _EGRESS_P4_
 
 #include <core.p4>
-#include <tofino.p4>
 
 // We don't use any egress processing, but these declarations
 // are required by the TNA.

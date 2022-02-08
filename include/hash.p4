@@ -3,7 +3,6 @@
 #ifndef _HASH_P4_ 
 #define _HASH_P4_ 
 
-#include <tofino.p4>
 #include "metadata.p4"
 #include "headers.p4"
 

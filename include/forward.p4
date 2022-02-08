@@ -3,7 +3,6 @@
 #ifndef _FORWARD_P4_ 
 #define _FORWARD_P4_ 
 
-#include <tofino.p4>
 #include "metadata.p4"
 #include "drop.p4"
 

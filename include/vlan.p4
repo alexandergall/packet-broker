@@ -3,7 +3,6 @@
 #ifndef _VLAN_P4_ 
 #define _VLAN_P4_ 
 
-#include <tofino.p4>
 #include "metadata.p4"
 #include "drop.p4"
 

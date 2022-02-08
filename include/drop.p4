@@ -3,7 +3,6 @@
 #ifndef _DROP_P4_ 
 #define _DROP_P4_ 
 
-#include <tofino.p4>
 #include "metadata.p4"
 
 action act_mark_to_drop(inout ingress_metadata_t ig_md) {

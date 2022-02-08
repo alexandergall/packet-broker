@@ -1,7 +1,6 @@
 /* -*- mode: P4_16 -*- */
 
 #include <core.p4>
-#include <tofino.p4>
 #include <tna.p4>
 
 #include "include/types.p4"

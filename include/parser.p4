@@ -3,7 +3,6 @@
 #ifndef _PARSER_P4_ 
 #define _PARSER_P4_ 
 
-#include <tofino.p4>
 #include "headers.p4"
 #include "metadata.p4"
 

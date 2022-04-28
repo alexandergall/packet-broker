@@ -103,7 +103,7 @@ while True:
             c.close()
             break
         resp = broker.handle_request(peer, json.loads(line))
-        c.send(json.dumps(resp, cls = JSONEncoder) + "\n")
+        c.send((json.dumps(resp, cls = JSONEncoder) + "\n").encode())
         c.close()
 
     now = time.time()

@@ -566,14 +566,16 @@ dropped.
 
 The `flow-mirror` section is optional.  It contains a list of flow
 patterns for the purpose of packet mirroring. A copy of every packet
-arriving on any of the ingress interfaces which matches any of the
-flow patterns in this list is sent to the port specified in the
-`flow-mirror` section of the `features` section.
+arriving on any of the ingress interfaces or a subset thereof which
+matches any of the flow patterns in this list is sent to the port
+specified in the `flow-mirror` section of the `features` section.
 
 A flow pattern is defined as follows
 
 ```
 {
+  "ingress-ports": [ <port>, ... ],
+  "non-ip": true|false,
   "src": <srcPrefix>,
   "dst": <dstPrefix>,
   "src_port": { "port": <src-port>, "mask": <src-mask> },
@@ -583,14 +585,24 @@ A flow pattern is defined as follows
 }
 ```
 
-All fields except `bidir` and `enable` are mandatory.  Ternary matches
-are used when comparing the patterns with the corresponding fields in
-the packets arriving on the ingress ports.  This means that each
-pattern consists of a value and a mask, where the mask is as wide as
-the value in terms of the number of bits.  Only those bits whose
-corresponding bit in the mask is equal to 1 are relevant. All bits in
-the value whose corresponding bit in the mask is 0 are ignored. A mask
-value of 0 effectively ignores the entire field.
+The `ingress-ports` list is optional. If omitted, the mirroring rules
+are applied to all ingress ports. Otherwise, the rules are only
+applied to the ports in the list.
+
+If the optional property `non-ip` is present and set to `true`, all
+packets that are neither IPv4 (Ethertype `0x0800`) or IPv6 (Ethertype
+`0x86dd`) are mirrored and all match fields are ignored.
+
+If `non-ip` is omitted or set to `false`, the fields `src`, `dst`,
+`src_port`, and `dst_port` must be present and determine which packets
+are selected for mirroring.  The fields `bidir` and `enable` are
+optional.  Ternary matches are used when comparing the patterns with
+the corresponding fields in the packets arriving on the ingress ports.
+This means that each pattern consists of a value and a mask, where the
+mask is as wide as the value in terms of the number of bits.  Only
+those bits whose corresponding bit in the mask is equal to 1 are
+relevant. All bits in the value whose corresponding bit in the mask is
+0 are ignored. A mask value of 0 effectively ignores the entire field.
 
 The `src` and `dst` field must use standard prefix notation, e.g.
 `"192.168.10.0/24"` or `"2001:db8:1::/64"`.  The mask is derived from

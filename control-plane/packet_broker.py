@@ -159,7 +159,7 @@ class PacketBroker:
         ## instance of this script or by issuing a "port-add" command
         ## on the ucli command line.
         config = Config()
-        for conn in range(1, 34):
+        for conn in range(1, 66):
             for chnl in range(0,4):
                 res = self.t.port_hdl_info.entry_get(
                     [ { 'name': '$CONN_ID', 'value': conn },

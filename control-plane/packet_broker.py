@@ -612,8 +612,13 @@ class PacketBroker:
         for port in sorted(self.config.ports.keys()):
             dev_port = get_dev_port(port)
             self.t.port.entry_del([ { 'name': '$DEV_PORT', 'value': dev_port } ])
-            self.ifmibs[dev_port].delete()
-            self.ifmibs.pop(dev_port, None)
+            ## It is possible that a port exists but was not added by
+            ## us (e.g. port added via bfshell, Tofino model starts up
+            ## with all ports active). In that case, the port is not
+            ## registered in the ifmib.
+            if dev_port in self.ifmibs:
+                self.ifmibs[dev_port].delete()
+                self.ifmibs.pop(dev_port, None)
         self.config = config
 
     def update_stats(self):

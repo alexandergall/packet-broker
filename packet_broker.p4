@@ -1,7 +1,13 @@
 /* -*- mode: P4_16 -*- */
 
 #include <core.p4>
+#if __TARGET_TOFINO__ == 3
+#include <t3na.p4>
+#elif __TARGET_TOFINO__ == 2
+#include <t2na.p4>
+#else
 #include <tna.p4>
+#endif
 
 #include "include/types.p4"
 #include "include/protocol_headers.p4"
@@ -71,7 +77,7 @@ control ig_ctl_dprs(
     Mirror() mirror;
 
     apply {
-        if (ig_dprsr_md.mirror_type == (bit<3>)mirror_session_t.FLOW) {
+        if (ig_dprsr_md.mirror_type == (MirrorType_t)mirror_session_t.FLOW) {
             mirror.emit(ig_md.mirror_session);
         }
         pkt.emit(hdr);

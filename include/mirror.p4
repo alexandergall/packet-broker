@@ -11,7 +11,7 @@ action act_mirror(
     inout ingress_metadata_t ig_md,
     inout ingress_intrinsic_metadata_for_deparser_t ig_dprsr_md,
     MirrorId_t mirror_session) {
-    ig_dprsr_md.mirror_type = (bit<3>)mirror_session_t.FLOW;
+    ig_dprsr_md.mirror_type = (MirrorType_t)mirror_session_t.FLOW;
     ig_md.mirror_session = mirror_session;
 }
 

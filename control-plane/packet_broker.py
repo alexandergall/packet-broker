@@ -182,7 +182,7 @@ class PacketBroker:
                             [{ 'name': '$DEV_PORT', 'value': dev_port }])
                         name = port['$PORT_NAME']
                         config.ports[name] = {
-                            'description': None,
+                            'description': '',
                             'speed': port['$SPEED'],
                             'mtu': port['$RX_MTU'],
                             'fec': port['$FEC'],
@@ -280,7 +280,7 @@ class PacketBroker:
             if port in config.ports.keys():
                 raise semantic_error("port {0:s} already defined".format(port))
             full_config = {
-                'description': None,
+                'description': '',
                 'fec': 'BF_FEC_TYP_NONE',
                 'shutdown': False
             }
@@ -599,15 +599,15 @@ class PacketBroker:
                          { 'name': '$RX_MTU', 'val': pconfig['mtu'] },
                          { 'name': '$TX_MTU', 'val': pconfig['mtu'] } ])
 
-                if dev_port not in self.ifmibs.keys():
-                    self.ifmibs[dev_port] = mib.ifmib(self.ifmibs_dir+'/'+re.sub('/', '_', port))
-                self.ifmibs[dev_port].set_properties(
-                    { 'ifDescr': port.encode('ascii'),
-                      'ifName': port.encode('ascii'),
-                      'ifAlias': pconfig['description'].encode('ascii'),
-                      'ifMtu': pconfig['mtu'],
-                      'speed': if_speed[pconfig['speed']] }
-                )
+            if dev_port not in self.ifmibs.keys():
+                self.ifmibs[dev_port] = mib.ifmib(self.ifmibs_dir+'/'+re.sub('/', '_', port))
+            self.ifmibs[dev_port].set_properties(
+                { 'ifDescr': port.encode('ascii'),
+                  'ifName': port.encode('ascii'),
+                  'ifAlias': pconfig['description'].encode('ascii'),
+                  'ifMtu': pconfig['mtu'],
+                  'speed': if_speed[pconfig['speed']] }
+            )
 
         for port in sorted(self.config.ports.keys()):
             dev_port = get_dev_port(port)

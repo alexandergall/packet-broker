@@ -654,14 +654,15 @@ class PacketBroker:
                     logger.warning("egress group {0} all member ports are down".format(group))
                     self.t.forward.entry_del([ { 'name': 'egress_group', 'value': group } ])
                     self.config.groups_ref[group] = False
-                elif not self.config.groups_ref[group]:
-                    self.t.forward.entry_add([ { 'name': 'egress_group', 'value': group } ],
-                                        None,
-                                        [ { 'name': '$SELECTOR_GROUP_ID', 'val': group } ])
-                    self.config.groups_ref[group] = True
 
                 self._set_action_selector(self.t.port_groups_sel.entry_mod,
                                           group, members)
+
+                if at_least_one_valid and not self.config.groups_ref[group]:
+                    self.t.forward.entry_add([ { 'name': 'egress_group', 'value': group } ],
+                                             None,
+                                             [ { 'name': '$SELECTOR_GROUP_ID', 'val': group } ])
+                    self.config.groups_ref[group] = True
 
     def handle_request(self, peer, req):
         self._msgs_clear()

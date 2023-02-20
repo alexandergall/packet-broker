@@ -27,8 +27,11 @@ enum bit<16> ethertype_t {
     IPV6 = 0x86dd
 }
 
+/* NOTE: mirror type 0 must not be used in ingress-to-egress
+   mirroring. It is used to cancel a mirror operation that was
+   requiested earlier in the ingress pipeline */
 enum MirrorType_t mirror_session_t {
-    FLOW = 0
+    FLOW = 1
 }
 
 #endif // _TYPES_P4_

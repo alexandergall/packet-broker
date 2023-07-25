@@ -22,7 +22,12 @@
                         "BF_SPEED_40G_NB",
                         "BF_SPEED_40G_NON_BREAKABLE",
                         "BF_SPEED_50G",
-                        "BF_SPEED_100G"
+                        "BF_SPEED_50G_R1",
+                        "BF_SPEED_100G",
+                        "BF_SPEED_100G_R2",
+                        "BF_SPEED_200G",
+                        "BF_SPEED_200G_R8",
+                        "BF_SPEED_400G"
                     ]
                 },
                 

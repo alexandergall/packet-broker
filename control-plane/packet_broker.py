@@ -87,7 +87,15 @@ if_speed = {
     'BF_SPEED_50G':                50000000000,
     'BF_SPEED_100G':              100000000000,
     'BF_SPEED_200G':              200000000000,
-    'BF_SPEED_400G':              400000000000
+    'BF_SPEED_400G':              400000000000,
+    ## On Tofino2, some speeds can be realized in distinct
+    ## configurations that use different numbers of lanes, e.g. 100G
+    ## as 4x25 or 2x50. The following names are not legal values for
+    ## $SPEED but appear with similar names in the bfshell port
+    ## manager.
+    'BF_SPEED_50G_R1':             50000000000, ## BF_SPEED_50G defaults to 2 lanes
+    'BF_SPEED_100G_R2':           100000000000, ## BF_SPEED_100G defaults to 4 lanes
+    'BF_SPEED_200G_R8':           200000000000, ## BF_SPEED_200G defaults to 4 lanes
 }
 
 class semantic_error(Exception):
@@ -567,13 +575,17 @@ class PacketBroker:
             else:
                 method = self.t.port.entry_add
             if method is not None:
-                method([ { 'name': '$DEV_PORT', 'value': dev_port } ],
-                       None,
-                       [ { 'name': '$SPEED', 'str_val': str(pconfig['speed']) },
-                         { 'name': '$FEC', 'str_val':  str(pconfig['fec']) },
-                         { 'name': '$PORT_ENABLE', 'bool_val': not pconfig['shutdown'] },
-                         { 'name': '$RX_MTU', 'val': pconfig['mtu'] },
-                         { 'name': '$TX_MTU', 'val': pconfig['mtu'] } ])
+                port_config = [ { 'name': '$FEC', 'str_val':  str(pconfig['fec']) },
+                                { 'name': '$PORT_ENABLE', 'bool_val': not pconfig['shutdown'] },
+                                { 'name': '$RX_MTU', 'val': pconfig['mtu'] },
+                                { 'name': '$TX_MTU', 'val': pconfig['mtu'] } ]
+                speed = str(pconfig['speed'])
+                lanes_match = re.match('.*_R[1-8]$', speed)
+                if lanes_match:
+                    port_config.append({ 'name': '$N_LANES', 'val': lanes_match.group(1) })
+                    speed = re.sub('_R[0-9]$', '', speed)
+                port_config.append({ 'name': '$SPEED', 'str_val': speed }),
+                method([ { 'name': '$DEV_PORT', 'value': dev_port } ], None, port_config)
 
             if dev_port not in self.ifmibs.keys():
                 self.ifmibs[dev_port] = mib.ifmib(self.ifmibs_dir+'/'+re.sub('/', '_', port))

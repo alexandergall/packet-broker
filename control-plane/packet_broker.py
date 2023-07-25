@@ -145,49 +145,25 @@ class PacketBroker:
         ## initial pseudo-configuration here that only contains the
         ## state of the ports as read from the device for
         ## bootstrapping.
-
-        ## In 9.1.1, the "internal" tables can't be traversed by using
-        ## "None" as the key to entry_get(), as normal P4 tables can
-        ## (at least not in a reliable manner). The following logic
-        ## finds all "active" interfaces by looking up the the
-        ## port-to-physical-port mapping in the "port_str_info"
-        ## table. This is specific to the WEDGE100-32X (note that port
-        ## 33 is used for the 10G CPU ports on this model).
-        ##
-        ## "active" in this context means that the port has been added
-        ## to the internal table called "$PORT", either by a previous
-        ## instance of this script or by issuing a "port-add" command
-        ## on the ucli command line.
+        logger.info("Detecting active ports")
         config = Config()
-        for conn in range(1, 66):
-            for chnl in range(0,4):
-                res = self.t.port_hdl_info.entry_get(
-                    [ { 'name': '$CONN_ID', 'value': conn },
-                      { 'name': '$CHNL_ID', 'value': chnl } ])
-                if res is not None:
-                    dev_port = res['$DEV_PORT']
-                    ## Every entry in the table has the field
-                    ## '$PORT_NAME' but only the active ports have any
-                    ## other fields.  We use this to determine which
-                    ## ports are active by looking for an arbitrary
-                    ## field.  This will cause bf_switchd to log an
-                    ## error for each non-active entry.
-                    res = self.t.port.entry_get(
-                        [{ 'name': '$DEV_PORT', 'value': dev_port }],
-                        [ { 'name': '$PORT_NAME' }, { 'name': '$IS_VALID' } ])
-                    if res is not None:
-                        ## Now that we know the port is active, fetch
-                        ## all fields.
-                        port = self.t.port.entry_get(
-                            [{ 'name': '$DEV_PORT', 'value': dev_port }])
-                        name = port['$PORT_NAME']
-                        config.ports[name] = {
-                            'description': '',
-                            'speed': port['$SPEED'],
-                            'mtu': port['$RX_MTU'],
-                            'fec': port['$FEC'],
-                            'shutdown': not port['$PORT_ENABLE']
-                        }
+        for _port, _key in self.t.port.entry_get_iterator(None):
+            port = _port.to_dict()
+            key = _key.to_dict()
+            name = port['$PORT_NAME']
+            logger.info("Port {0}({1}), Enable {2}, Up {3}".format(
+                name,
+                key['$DEV_PORT']['value'],
+                port['$PORT_ENABLE'],
+                port['$PORT_UP']
+            ))
+            config.ports[name] = {
+                'description': '',
+                'speed': port['$SPEED'],
+                'mtu': port['$RX_MTU'],
+                'fec': port['$FEC'],
+                'shutdown': not port['$PORT_ENABLE']
+            }
         self.config = config
 
     def _get_dev_port(self, port):

@@ -97,7 +97,7 @@ class Bfrt:
             ## The "is_master" argument has been removed in SED 9.4.0
             args = dict(client_id = client_id, num_tries=retries,
                         device_id = device_id)
-            if "is_master" in inspect.getargspec(gc.ClientInterface.__init__).args:
+            if "is_master" in inspect.getfullargspec(gc.ClientInterface.__init__).args:
                 args["is_master"] = True
             try:
                 self.intf = gc.ClientInterface(addr, **args)

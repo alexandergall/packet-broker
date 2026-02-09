@@ -227,7 +227,7 @@
 
             "items": {
                 "type": "object",
-                "required": [ "src", "dst", "src_port", "dst_port" ],
+                "required": [ "egress-port" ],
 
                 "properties": {
 		    "ingress-ports": {
@@ -237,6 +237,21 @@
 			    "$ref": "#/definitions/logical-port-pattern"
 			}
 		    },
+                    "egress-port": {
+                        "$ref": "#/definitions/logical-port-pattern"
+                    },
+                    "mirror-mode": {
+                        "type": "string",
+                        "enum": [
+                            "ingress",
+                            "egress"
+                         ]
+                    },
+                    "max-packet-length": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 16384
+                    },
 		    "non-ip": {
 			"type": "boolean"
 		    },
@@ -271,23 +286,6 @@
                     "$ref": "#/definitions/logical-or-physical-port-pattern"
                 },
 
-                "flow-mirror": {
-                    "type": "object",
-                    "required": [ "port" ],
-                    "properties": {
-
-                        "port": {
-                            "$ref": "#/definitions/logical-or-physical-port-pattern"
-                        },
-                        "max-packet-length": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 16384
-                        }
-                    },
-                    "additionalProperties": false
-                },
-                
                 "drop-non-initial-fragments": {
                     "type": "boolean"
                 },

@@ -1,4 +1,4 @@
-/* -*- mode: P4_16 -*- */
+/* -*- mode: P4-16 -*- */
 
 #include <core.p4>
 #if __TARGET_TOFINO__ == 3
@@ -20,7 +20,6 @@
 #include "include/filter.p4"
 #include "include/hash.p4"
 #include "include/forward.p4"
-#include "include/egress.p4"
 #include "include/mirror.p4"
 
 control ig_ctl(
@@ -64,23 +63,79 @@ control ig_ctl(
         if (ig_md.drop == 1) {
             ctl_drop_packet.apply(ig_dprsr_md, ig_tm_md);
         }
+
+        if (ig_md.mirror_mode == mirror_modes.INGRESS) {
+            ig_dprsr_md.mirror_type = DPRSR_MIRROR_TYPE;
+        }
+
+        // Add the header for passing metadata from ingress to egress.
+        hdr.bridge.setValid();
+        hdr.bridge.packet_type = packet_types.BRIDGE;
+        // A non-zero value of eg_mirror_session triggers egress
+        // mirroring in the egress pipe. I.e. it needs to be zero for
+        // non- or ingress-mirrored packets.
+        if (ig_md.mirror_mode == mirror_modes.EGRESS) {
+            hdr.bridge.eg_mirror_session = ig_md.mirror_session;
+        } else {
+            hdr.bridge.eg_mirror_session = 0;
+        }
     }
-    
 }
 
-control ig_ctl_dprs(
-    packet_out pkt,
+// The egress pipeline is currently only used for packet mirroring. All
+// packets entering the egress deparser have a header of either type
+// "bridge" or "mirror". They have a common first element that designates
+// the type of header.
+//
+// A bridge header is followed by a regular packet and a mirror header is
+// followed by packet that was created by ingress or egress mirroring. A
+// non-zero value of the eg_mirror_session field of a bridge header
+// triggers mirroring of the packet in the egress deparser.
+//
+// For mirrored packets, the egress pipe can apply optional encapsulation
+// based on the mirror session identifier to implement ERSPAN-type
+// functionality (not yet implemented).
+
+control eg_ctl(
     inout headers hdr,
-    in ingress_metadata_t ig_md,
-    in ingress_intrinsic_metadata_for_deparser_t ig_dprsr_md)
+    inout egress_metadata_t eg_md,
+    in    egress_intrinsic_metadata_t eg_intr_md,
+    in    egress_intrinsic_metadata_from_parser_t eg_prsr_md,
+    inout egress_intrinsic_metadata_for_deparser_t eg_dprsr_md,
+    inout egress_intrinsic_metadata_for_output_port_t eg_oport_md)
 {
-    Mirror() mirror;
+    action act_eg_mirror() {
+        // NOTE: eg_md.packet_type is initialized to MIRROR in the
+        // ingress parser.
+        eg_dprsr_md.mirror_type = DPRSR_MIRROR_TYPE;
+
+        // Found this in the tna_mirror.p4 of the SDE p4-16 examples
+        // collection. It doesn't seem to make a difference on the
+        // Tofino model, but maybe it does on the hardware (didn't
+        // check).
+#if __TARGET_TOFINO__ == 2
+        eg_dprsr_md.mirror_io_select = 1; // E2E mirroring for Tofino2
+#endif
+    }
+
+    // Not yet implemented
+    table tbl_mirror_encap {
+        key = {}
+        actions = {
+            @defaultonly NoAction;
+        }
+        size = 1;
+        const default_action = NoAction;
+    }
 
     apply {
-        if (ig_dprsr_md.mirror_type == (MirrorType_t)mirror_session_t.FLOW) {
-            mirror.emit(ig_md.mirror_session);
+        if (eg_md.bridge.isValid() && eg_md.bridge.eg_mirror_session != 0) {
+            // Egress mirroring was requested by the ingress pipe.
+            act_eg_mirror();
         }
-        pkt.emit(hdr);
+        if (eg_md.mirror.isValid()) {
+           tbl_mirror_encap.apply();
+        }
     }
 }
 

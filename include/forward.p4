@@ -35,7 +35,6 @@ control ctl_forward_packet(
     
     action act_send(PortId_t egress_port) {
         ig_tm_md.ucast_egress_port = egress_port;
-        ig_tm_md.bypass_egress = 1;
     }
     
     // 14 hash bits are required by Tofino for fair-hashing with at

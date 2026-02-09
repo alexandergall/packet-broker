@@ -70,10 +70,10 @@ specified port instead.  This feature is called _deflect-on-drop_.
 
 Finally, the broker also provides the ability to create copies of
 packets that match a specific flow pattern and send them to an
-arbitrary port for inspection.  The mirroring takes place before the
-packets are modified by any action described above as well as before
-any of the source filters are applied.
-
+arbitrary port for inspection.  The mirroring can be applied either on
+ingress or egress. The former provides a copy of the unmodified packet
+as it arrives on the ingress port. The latter provides a copy of the
+packet after processing, i.e. as it appears on the egress port.
 
 ## <a name="tofino-ports"></a>Port Designations on Tofino Platforms
 
@@ -568,13 +568,16 @@ The `flow-mirror` section is optional.  It contains a list of flow
 patterns for the purpose of packet mirroring. A copy of every packet
 arriving on any of the ingress interfaces or a subset thereof which
 matches any of the flow patterns in this list is sent to the port
-specified in the `flow-mirror` section of the `features` section.
+specified in the `egress-port` property.
 
 A flow pattern is defined as follows
 
 ```
 {
   "ingress-ports": [ <port>, ... ],
+  "egress-port": <port>,
+  "mirror-mode": "ingress"|"egress",
+  "max-packet-length": <lenght>,
   "non-ip": true|false,
   "src": <srcPrefix>,
   "dst": <dstPrefix>,
@@ -589,14 +592,28 @@ The `ingress-ports` list is optional. If omitted, the mirroring rules
 are applied to all ingress ports. Otherwise, the rules are only
 applied to the ports in the list.
 
+The `egress-port` property is required. It specifies the port to which
+the mirror copy of the packet is sent.
+
+The `mirror-mode` property is optional. It must be either `"ingress"`
+or `"egress"`. In ingress mode, the mirrored packet is a copy of the
+original packet as it was received by the device. In egress mode, the
+mirrored packet is a copy of the packet as it leaves the device,
+i.e. containing all the modifications applied by the processing
+pipeline. The default value is `"ingress"`.
+
+The `max-packet-length` property sets the maximum number of bytes to
+which mirrored packets are truncated. The range of valid values is
+from 0 to 16384, inclusive. The default is 0, which disables
+truncation.
+
 If the optional property `non-ip` is present and set to `true`, all
 packets that are neither IPv4 (Ethertype `0x0800`) or IPv6 (Ethertype
 `0x86dd`) are mirrored and all match fields are ignored.
 
 If `non-ip` is omitted or set to `false`, the fields `src`, `dst`,
-`src_port`, and `dst_port` must be present and determine which packets
-are selected for mirroring.  The fields `bidir` and `enable` are
-optional.  Ternary matches are used when comparing the patterns with
+`src_port`, and `dst_port` determine which packets are selected for
+mirroring.  Ternary matches are used when comparing the patterns with
 the corresponding fields in the packets arriving on the ingress ports.
 This means that each pattern consists of a value and a mask, where the
 mask is as wide as the value in terms of the number of bits.  Only
@@ -613,12 +630,20 @@ The `src_port` and `dst_port` fields match UDP or TCP port numbers,
 which must be in the range from 0 to 65535.  The mask must be
 specified explicitly as a decimal number in the same range.
 
-If the `bidir` field is set to `true`, an additional flow pattern is
-automatically generated with all source and destination fields
-reversed.  The default is `false`.
+Any of the `src`, `dst`, `src_port` and `dst_port` fields can be
+omitted and have the following defaults:
 
-If the `enable` field is set to `false`, the flow pattern is not
-programmed into the hardware and is thus effectively ignored.  The
+   * `src`: `"0.0.0.0/0"`
+   * `dst`: `"0.0.0.0/0"`
+   * `src_port`: `{ "port": 0, "mask": 0 }`
+   * `dst_port`: `{ "port": 0, "mask": 0 }`
+
+If the optional `bidir` field is set to `true`, an additional flow
+pattern is automatically generated with all source and destination
+fields reversed.  The default is `false`.
+
+If the optional `enable` field is set to `false`, the flow pattern is
+not programmed into the hardware and is thus effectively ignored.  The
 default is `true`.
 
 ### Features
@@ -630,10 +655,6 @@ given below.  The basic structure is as follows
 ```
 "features": {
   "deflect-on-drop": <port-spec>,
-  "flow-mirror": {
-    "port": <port-spec>,
-    "max-packet-length": <packet-length>
-  },
   "drop-non-initial-fragments": true | false,
   "exclude-ports-from-hash": true | false,
   "drop-non-ip": true | false
@@ -668,20 +689,6 @@ are met
      header is truncated)
 
 The `deflect-on-drop` feature is disabled by default.
-
-The `flow-mirror` section sets parameters common to all flow mirror
-rules.  The `port` field specifies the destination port for mirrored
-packets and it accepts both logical and physical port ids like the
-`defelect-on-drop` field.  If the `port` field is omitted, flow
-mirroring is effectively disabled, which is the default.  Note that
-the Tofino architecture mandates that the egress port for mirrored
-packets must be a single port, i.e. hash-based distribution to a group
-of ports is not supported.
-
-The `max-packet-length` field is used to limit the size of mirrored
-packets to the given number of bytes.  It must be in the range from 0
-to 16384.  The default is 16384, i.e. mirrored packets are not
-truncated.
 
 If the `drop-non-initial-fragments` feature is enabled, non-initial
 fragments of fragmented IPv4 or IPv6 packets are dropped.  A packet is
@@ -863,10 +870,8 @@ optional arguments:
 ```
 
 The output is generated from the daemon's in-memory copy of the
-configuration file. For the `flow-mirror` argument, only the entries
-with `enable` set to `true` are displayed. The output for
-`source-filter` includes the list of filters that have been added with
-the `add` command as well.
+configuration file. The output for `source-filter` includes the list
+of filters that have been added with the `add` command as well.
 
 ### `add`
 

@@ -27,11 +27,29 @@ enum bit<16> ethertype_t {
     IPV6 = 0x86dd
 }
 
-/* NOTE: mirror type 0 must not be used in ingress-to-egress
-   mirroring. It is used to cancel a mirror operation that was
-   requiested earlier in the ingress pipeline */
-enum MirrorType_t mirror_session_t {
-    FLOW = 1
+// Modes of packet mirroring set by the act_mirror() action
+typedef bit<2> mirror_mode_t;
+enum mirror_mode_t mirror_modes {
+    NONE = 0,
+    INGRESS = 1,
+    EGRESS  = 2
 }
+
+// Identifier to distinguish bridge and mirror packet headers. One bit
+// would be enough but that triggers a cryptic compiler error "invalid
+// SuperCluster was formed" (p4c v1.2.5.6)
+typedef bit<8> packet_type_t;
+enum packet_type_t packet_types {
+    // Normal packet, no request for egress mirror
+    BRIDGE = 0,
+    // Mirrored packet (no distinction bewteen ingress/egress mirror)
+    MIRROR = 1
+}
+
+// We use a single mirror type for ingress and egress mirroring. Note
+// that type 0 is reserved for ingress mirroring (it is used to cancel
+// a mirror operation that was requested earlier in the ingress
+// pipeline). The types used for ingress and egress are independent.
+const MirrorType_t DPRSR_MIRROR_TYPE = 1;
 
 #endif // _TYPES_P4_

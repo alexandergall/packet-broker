@@ -9,9 +9,10 @@
 
 action act_mirror(
     inout ingress_metadata_t ig_md,
-    inout ingress_intrinsic_metadata_for_deparser_t ig_dprsr_md,
+    mirror_mode_t mirror_mode,
     MirrorId_t mirror_session) {
-    ig_dprsr_md.mirror_type = (MirrorType_t)mirror_session_t.FLOW;
+
+    ig_md.mirror_mode = mirror_mode;
     ig_md.mirror_session = mirror_session;
 }
 
@@ -30,7 +31,7 @@ control ctl_mirror_flows_ipv4(
             ig_md.l4_lookup.word_2 : ternary @name("dst_port");
         }
         actions = {
-            act_mirror(ig_md, ig_dprsr_md);
+            act_mirror(ig_md);
             @defaultonly NoAction;
         }
         const default_action = NoAction;
@@ -56,7 +57,7 @@ control ctl_mirror_flows_ipv6(
             ig_md.l4_lookup.word_2 : ternary @name("dst_port");
         }
         actions = {
-            act_mirror(ig_md, ig_dprsr_md);
+            act_mirror(ig_md);
             @defaultonly NoAction;
         }
         const default_action = NoAction;
@@ -78,7 +79,7 @@ control ctl_mirror_flows_non_ip(
             ig_intr_md.ingress_port : ternary @name("ingress_port");
         }
         actions = {
-            act_mirror(ig_md, ig_dprsr_md);
+            act_mirror(ig_md);
             @defaultonly NoAction;
         }
         const default_action = NoAction;

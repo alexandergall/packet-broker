@@ -3,8 +3,13 @@
 #ifndef _PARSER_P4_ 
 #define _PARSER_P4_ 
 
+#include "types.p4"
 #include "headers.p4"
 #include "metadata.p4"
+
+//
+// Ingress
+//
 
 parser ig_prs(
     packet_in pkt,
@@ -21,10 +26,9 @@ parser ig_prs(
     }
 
     state meta_init {
-        ig_md.l4_lookup          = { 0, 0 };
-        ig_md.non_first_fragment = 0;
-        ig_md.drop               = 0;
-        ig_md.mirror_session     = 0;
+        packet_type_t packet_type_mirror = packet_types.MIRROR;
+        mirror_mode_t mirror_mode_none = mirror_modes.NONE;
+        ig_md = { { 0, 0 }, 0, 0, packet_type_mirror, mirror_mode_none, 0 };
 
         transition prs_ethernet;
     }
@@ -62,7 +66,7 @@ parser ig_prs(
     }
     
     state prs_ipv4_options {
-        pkt.extract(hdr.ipv4_options, ((bit<32>)hdr.ipv4.ihl - 5) * 32);
+        pkt.extract(hdr.ipv4_options, ((bit<32>)(hdr.ipv4.ihl - 5) * 32));
         
         transition prs_ipv4_no_options;
     }
@@ -110,6 +114,76 @@ parser ig_prs(
         transition accept;
     }
 
+}
+
+control ig_ctl_dprs(
+    packet_out pkt,
+    inout headers hdr,
+    in ingress_metadata_t ig_md,
+    in ingress_intrinsic_metadata_for_deparser_t ig_dprsr_md)
+{
+    Mirror() mirror;
+
+    apply {
+        if (ig_dprsr_md.mirror_type == DPRSR_MIRROR_TYPE) {
+            // The mirrored packet contains the originial unmodified
+            // packet with the packet type set to MIRROR in the
+            // metadata header.
+            mirror.emit<mirror_t>(ig_md.mirror_session,
+                { ig_md.packet_type, ig_md.mirror_session });
+        }
+        pkt.emit(hdr);
+    }
+}
+
+//
+// Egress
+//
+
+parser eg_prs(
+    packet_in pkt,
+    out headers hdr,
+    out egress_metadata_t eg_md,
+    out egress_intrinsic_metadata_t eg_intr_md)
+{
+    state start {
+        pkt.extract(eg_intr_md);
+        eg_md.packet_type = packet_types.MIRROR;
+        transition select(pkt.lookahead<packet_type_t>()) {
+            packet_types.BRIDGE: prs_bridge;
+            packet_types.MIRROR: prs_mirror;
+        }
+    }
+
+    state prs_bridge {
+        pkt.extract(eg_md.bridge);
+        transition accept;
+    }
+
+    state prs_mirror {
+        pkt.extract(eg_md.mirror);
+        transition accept;
+    }
+}
+
+control eg_ctl_dprs(
+    packet_out pkt,
+    inout headers hdr,
+    in egress_metadata_t eg_md,
+    in egress_intrinsic_metadata_for_deparser_t eg_dprsr_md)
+{
+    Mirror() mirror;
+
+    apply {
+        if (eg_dprsr_md.mirror_type == DPRSR_MIRROR_TYPE) {
+            // The mirrored packet contains the fully processed packet
+            // with the packet type set to MIRROR in the metadata
+            // header.
+            mirror.emit<mirror_t>(eg_md.bridge.eg_mirror_session,
+                { eg_md.packet_type, eg_md.bridge.eg_mirror_session });
+        }
+        pkt.emit(hdr);
+    }
 }
 
 #endif // _PARSER_P4_

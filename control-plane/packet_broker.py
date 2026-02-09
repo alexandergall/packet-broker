@@ -8,8 +8,6 @@ import mib
 
 logger = logging.getLogger(__name__)
 
-MIRROR_SESSION_ID = 1
-
 ctls = {
     'vlan' : 'pipe.ig_ctl.ctl_push_or_rewrite_vlan',
     'forward' : 'pipe.ig_ctl.ctl_forward_packet',
@@ -96,6 +94,13 @@ if_speed = {
     'BF_SPEED_50G_R1':             50000000000, ## BF_SPEED_50G defaults to 2 lanes
     'BF_SPEED_100G_R2':           100000000000, ## BF_SPEED_100G defaults to 4 lanes
     'BF_SPEED_200G_R8':           200000000000, ## BF_SPEED_200G defaults to 4 lanes
+}
+
+## Action data for the mirror_* tables to specify wheter packets
+## should be mirrored on ingress or egress.
+mirror_modes = {
+    "ingress": 1,
+    "egress":  2
 }
 
 class semantic_error(Exception):
@@ -312,8 +317,8 @@ class PacketBroker:
         if 'flow-mirror' in json.keys():
             def add_flow(flow_in):
                 flow = flow_in.copy()
-                flow.pop('bidir', None)
-                flow.pop('enable', None)
+                #flow.pop('bidir', None)
+                #flow.pop('enable', None)
                 flow['src'] = ipaddress.ip_network(flow['src'])
                 flow['dst'] = ipaddress.ip_network(flow['dst'])
 
@@ -323,6 +328,11 @@ class PacketBroker:
                                          format(JSON.dumps(flow_in)))
 
                 flow['ingress-ports'] = [ self._get_dev_port(port) for port in sorted(flow.pop('ingress-ports', [])) ]
+                egress_port = flow['egress-port']
+                if not re.match("^[0-9]+$", egress_port):
+                    egress_port = self._get_dev_port(port)
+                flow['egress-port'] = egress_port
+
                 if flow in config.flow_mirror:
                     self._warning("Ignoring duplicate flow mirror rule: {}".
                                   format(JSON.dumps(flow_in)))
@@ -330,15 +340,24 @@ class PacketBroker:
                     config.flow_mirror.append(flow)
 
             for flow in json['flow-mirror']:
-                if not flow.get('enable', True):
-                    continue
+                flow.setdefault("ingress-ports", [])
+                flow.setdefault("mirror-mode", "ingress")
+                flow.setdefault("max-packet-length", 0)
+                flow.setdefault("non-ip", False)
+                flow.setdefault("enable", True)
+                flow.setdefault("bidir", False)
+                flow.setdefault("src", "0.0.0.0/0")
+                flow.setdefault("dst", "0.0.0.0/0")
+                flow.setdefault("src_port", { 'mask': 0, 'port': 0 })
+                flow.setdefault("dst_port", { 'mask': 0, 'port': 0 })
                 add_flow(flow)
-                if flow.get('bidir', False) and not flow.get('non-ip', False):
-                    add_flow({ 'ingress-ports': flow.get('ingress-ports', []),
-                               'src': flow['dst'],
-                               'dst': flow['src'],
-                               'src_port': flow['dst_port'],
-                               'dst_port': flow['src_port'] })
+                if flow['bidir'] and not flow['non-ip']:
+                    bidir_flow = flow.copy()
+                    bidir_flow['src'] = flow['dst']
+                    bidir_flow['dst'] = flow['src']
+                    bidir_flow['src_port'] = flow['dst_port']
+                    bidir_flow['dst_port'] = flow['src_port']
+                    add_flow(bidir_flow)
 
         features = json.get('features', {})
         for feature, value in features.items():
@@ -346,22 +365,6 @@ class PacketBroker:
                 if not re.match("^[0-9]+$", value):
                     value = self._get_dev_port(value)
                 config.features['deflect-on-drop'] = int(value)
-
-            if feature == 'flow-mirror':
-                cfg = value
-
-                port = cfg['port']
-                if not re.match("^[0-9]+$", port):
-                    port = self._get_dev_port(port)
-
-                if 'max-packet-length' in cfg.keys():
-                    max_pkt_len = cfg['max-packet-length']
-                else:
-                    max_pkt_len = 16384
-                config.features['flow-mirror'] = {
-                    'port': int(port),
-                    'max_pkt_len': max_pkt_len
-                }
 
             if feature == 'drop-non-initial-fragments' and value:
                 config.features['drop-non-initial-fragments'] = True
@@ -371,10 +374,6 @@ class PacketBroker:
 
             if feature == 'drop-non-ip' and value:
                 config.features['drop-non-ip'] = True
-
-        if len(config.flow_mirror) > 0 and 'flow-mirror' not in features.keys():
-            raise semantic_error("Flow mirror feature configuration required " +
-                                 "if enabled flow mirror rules are present")
 
         return config
 
@@ -485,61 +484,65 @@ class PacketBroker:
         self.t.mirror_ipv4.clear()
         self.t.mirror_ipv6.clear()
         self.t.mirror_non_ip.clear()
-        if 'flow-mirror' in config.features.keys():
-            for flow in config.flow_mirror:
-                ports = flow['ingress-ports']
-                port_mask = 0x1ff;
-                if len(ports) == 0:
-                    ports = [ 0 ]
-                    port_mask = 0
-                if flow['src'].version == 4:
-                    tbl = self.t.mirror_ipv4
-                    tbl.table.info.key_field_annotation_add("src_addr", "ipv4")
-                    tbl.table.info.key_field_annotation_add("dst_addr", "ipv4")
+        self.t.mirror_cfg.clear()
+        mirror_session = 0
+        for flow in config.flow_mirror:
+            if not flow['enable']:
+                continue
+            ports = flow['ingress-ports']
+            port_mask = 0x1ff;
+            if len(ports) == 0:
+                ports = [ 0 ]
+                port_mask = 0
+            if flow['src'].version == 4:
+                tbl = self.t.mirror_ipv4
+                tbl.table.info.key_field_annotation_add("src_addr", "ipv4")
+                tbl.table.info.key_field_annotation_add("dst_addr", "ipv4")
+            else:
+                tbl = self.t.mirror_ipv6
+                tbl.table.info.key_field_annotation_add("src_addr", "ipv6")
+                tbl.table.info.key_field_annotation_add("dst_addr", "ipv6")
+            mirror_session += 1
+            mirror_mode = mirror_modes[flow['mirror-mode']]
+            for port in ports:
+                if flow.get('non-ip', False):
+                    self.t.mirror_non_ip.entry_add(
+                        [ { 'name': 'ingress_port',
+                            'value': port,
+                            'mask': port_mask } ],
+                        'act_mirror',
+                        [ { 'name': 'mirror_session', 'val': mirror_session },
+                          { 'name': 'mirror_mode', 'val': mirror_mode } ])
                 else:
-                    tbl = self.t.mirror_ipv6
-                    tbl.table.info.key_field_annotation_add("src_addr", "ipv6")
-                    tbl.table.info.key_field_annotation_add("dst_addr", "ipv6")
-                for port in ports:
-                    if flow.get('non-ip', False):
-                        self.t.mirror_non_ip.entry_add(
-                            [ { 'name': 'ingress_port',
-                                'value': port,
-                                'mask': port_mask } ],
-                            'act_mirror',
-                            [ { 'name': 'mirror_session', 'val': MIRROR_SESSION_ID } ])
-                    else:
-                        tbl.entry_add(
-                            [ { 'name': 'ingress_port',
-                                'value': port,
-                                'mask': port_mask },
-                              { 'name': 'src_addr',
-                                'value': flow['src'].network_address.exploded,
-                                'mask': int(flow['src'].netmask) },
-                              { 'name': 'dst_addr',
-                                'value': flow['dst'].network_address.exploded,
-                                'mask': int(flow['dst'].netmask) },
-                              { 'name': 'src_port',
-                                'value': flow['src_port']['port'],
-                                'mask': flow['src_port']['mask'] },
-                              { 'name': 'dst_port',
-                                'value': flow['dst_port']['port'],
-                                'mask': flow['dst_port']['mask'] } ],
-                            'act_mirror',
-                            [ { 'name': 'mirror_session', 'val': MIRROR_SESSION_ID } ])
-            
-            flow_mirror = config.features['flow-mirror']
-            method = self.t.mirror_cfg.entry_add
-            if self.t.mirror_cfg.entry_get([ { 'name': '$sid', 'value': MIRROR_SESSION_ID } ]):
-                method = self.t.mirror_cfg.entry_mod
-            method(
-                [ { 'name': '$sid', 'value': MIRROR_SESSION_ID } ],
+                    tbl.entry_add(
+                        [ { 'name': 'ingress_port',
+                            'value': port,
+                            'mask': port_mask },
+                          { 'name': 'src_addr',
+                            'value': flow['src'].network_address.exploded,
+                            'mask': int(flow['src'].netmask) },
+                          { 'name': 'dst_addr',
+                            'value': flow['dst'].network_address.exploded,
+                            'mask': int(flow['dst'].netmask) },
+                          { 'name': 'src_port',
+                            'value': flow['src_port']['port'],
+                            'mask': flow['src_port']['mask'] },
+                          { 'name': 'dst_port',
+                            'value': flow['dst_port']['port'],
+                            'mask': flow['dst_port']['mask'] } ],
+                        'act_mirror',
+                        [ { 'name': 'mirror_session', 'val': mirror_session },
+                          { 'name': 'mirror_mode' , 'val': mirror_mode } ])
+
+            self.t.mirror_cfg.entry_add(
+                [ { 'name': '$sid', 'value': mirror_session } ],
                 '$normal',
                 [ { 'name': '$session_enable', 'bool_val': True },
-                  { 'name': '$direction', 'str_val': 'INGRESS' },
-                  { 'name': '$ucast_egress_port', 'val': flow_mirror['port'] },
+                  { 'name': '$direction', 'str_val':
+                    mirror_mode == mirror_modes['ingress'] and 'INGRESS' or 'EGRESS' },
+                  { 'name': '$ucast_egress_port', 'val': flow['egress-port'] },
                   { 'name': '$ucast_egress_port_valid', 'bool_val': True },
-                  { 'name': '$max_pkt_len', 'val': flow_mirror['max_pkt_len'] } ])
+                  { 'name': '$max_pkt_len', 'val': flow['max-packet-length'] } ])
             
         self.t.drop.default_entry_reset()
         self.t.maybe_drop_fragment.default_entry_reset()

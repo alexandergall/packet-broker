@@ -48,14 +48,17 @@ preserve this information as follows.
 
    * Tagged packets
 
-     The VLAN ID is replaced with a given value. This action is called
-     _rewrite_.
+        * The VLAN ID is replaced with a given value. This action is
+          called _rewrite_.
+
+        * The VLAN ID is passed on unchanged. This action is called
+          _accept_.
 
 In the current implementation, this functionality is mandatory. Every
-ingress port must specify how VLAN tags are rewritten and/or pushed to
-packets arriving on that port. Accordingly, all packets leaving the
-broker contain a VLAN tag, i.e. each egress port group is effectively
-a VLAN trunk.
+ingress port must specify how VLAN tags are accepted, rewritten or
+pushed to packets arriving on that port. Accordingly, all packets
+leaving the broker contain a VLAN tag, i.e. each egress port group is
+effectively a VLAN trunk.
 
 In addition, the broker can optionally rewrite MAC source and
 destination addresses for VLANs (addresses of untagged packets cannot
@@ -63,7 +66,7 @@ be rewritten) and drop incoming packets based on source IPv4/IPv6
 addresses.  The latter functionality is referred to as a
 _source-filter_.
 
-Packets which do not match any of the VLAN actions (i.e. push
+Packets which do not match any of the VLAN actions (i.e. accept, push
 or rewrite) defined for the ingress port are dropped.  Instead of
 actually dropping the packets, they can optionally be sent to a
 specified port instead.  This feature is called _deflect-on-drop_.
@@ -427,6 +430,8 @@ rewriting as follows
   "egress-group": <number>,
   "vlans": {
     "push": <vlanID>,
+    "accept: [
+    ],
     "rewrite": [
     ]
   }
@@ -439,17 +444,42 @@ port that pass the criteria set by the rules in the `vlans` section as
 described below will be forwarded to one of the members of this port
 group according to their flow signature.
 
-The `push` and `rewrite` sections are both optional, but specifying
-neither of them results in all packets being dropped.
+The `push`, `accept` and `rewrite` sections are optional, but
+specifying neither of them results in all packets being dropped.
 
 If `push` is specified, a 802.1Q header (Ethertype `0x8100`) is added to
 all untagged packets with the VLAN ID set to `<vlanID>` and all other
 fields (`PCP`, `DEI`) set to zero.  It has no effect on packets that
 already have a 802.1Q header.
 
-The `rewrite` section, if specified, only applies to packets with a
-802.1Q header. It has no effect on untagged packets.  This section
-must contain a list of objects of the form
+The `accept` and `rewrite` sections, if specified, only apply to
+packets with a 802.1Q header. They have no effect on untagged packets.
+
+The `accpet` section must contain a list of objects of the form
+
+```
+{
+  "vid": <vlanID>,
+  "mask": <mask>
+}
+```
+
+The `vid` field is mandatory. The `mask` field is optional and must be
+an integer between 0 and 4095 (`0xFFF`) with default value 4095. Only
+those bits of `vid` that are set in the mask are considered for a
+match in the table (ternary match). I.e. the default mask performs an
+exact match on the VLAN tag. The rule
+
+```
+{
+  "vid": 0,
+  "mask": 0
+}
+```
+
+accepts all tagged packets, irrespective of the VLAN tag.
+
+The `rewrite` section must contain a list of objects of the form
 
 ```
 {
@@ -472,6 +502,14 @@ The `in` and `out` fields are mandatory and have the following effect.
 A packet whose VLAN ID matches `<vlanIDin>` is accepted and its VLAN
 ID is replaced with `<vlanIDout>`.
 
+The `accept` and `rewrite` actions are implemented by the same P4
+table. A table miss results in the packet being marked to be dropped
+(or sent to a port if the `deflect-on-drop` feature is enabled).
+
+It is an error to specify an exact-match accept rule and a rewrite
+rule for the same VLAN ID. If a wildcard accept rule overlaps with a
+rewrite rule, the rewrite rule is ignored.
+
 The `mac-rewrite` section is optional.  If present, it rewrites source
 and/or destination MAC addresses as specified by the `src` and `dst`
 lists, respectively, for packets whose VLAN ID matches `<vlanIDin>`.
@@ -482,6 +520,11 @@ Consider the following example
 
 ```
 "vlans": {
+  "accept": [
+      { "vid": 100 },
+      { "vid": 0,
+        "mask": 3840
+      }
   "rewrite": [
       { "in": 600,
         "out": 207
@@ -498,26 +541,11 @@ Consider the following example
 }
 ```
 
-This will replace VLAN ID 600 by 207 without rewriting any addresses
-in VLAN 600. It will also replace VLAN ID 333 by VLAN ID 211 and
-replace all occurences of `ac:4b:c8:40:e2:b9` as the MAC source
-address of packets with VLAN ID 333 with `02:00:00:00:00:01`.
-
-All tagged packets whose VLAN ID doesn't match any of the `in` fields
-are dropped.  To accept all packets for a VLAN without changing the
-VLAN ID, an explicit `rewrite` clause must be present with
-`<vlanIDout>` set to `<vlanIDin>`, e.g.
-
-```
-"vlans": }
-  "rewrite": [
-    {
-      "in": 600,
-      "out": 600
-    }
-  ]
-}
-```
+This will accept VLAN ID 100 and all VLAN IDs in the range 0-255 and
+replace VLAN ID 600 by 207 without rewriting any addresses in VLAN
+600. It will also replace VLAN ID 333 by VLAN ID 211 and replace all
+occurences of `ac:4b:c8:40:e2:b9` as the MAC source address of packets
+with VLAN ID 333 with `02:00:00:00:00:01`.
 
 #### Egress
 

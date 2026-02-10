@@ -31,7 +31,7 @@ control ctl_push_or_rewrite_vlan(
         size = 256;
         const default_action = act_mark_to_drop(ig_md);
     }
-    
+
     action act_rewrite_vlan(vlan_id_t vid) {
         hdr.vlan.vid = vid;
     }
@@ -39,9 +39,10 @@ control ctl_push_or_rewrite_vlan(
     table tbl_ingress_tagged {
         key = {
             ig_intr_md.ingress_port : exact @name("ingress_port");
-            hdr.vlan.vid            : exact @name("ingress_vid");
+            hdr.vlan.vid            : ternary @name("ingress_vid");
         }
         actions = {
+            NoAction;
             act_rewrite_vlan;
             @defaultonly act_mark_to_drop(ig_md);
         }

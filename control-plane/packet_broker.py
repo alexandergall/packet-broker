@@ -299,6 +299,20 @@ class PacketBroker:
         for port, dict in sorted(json['ports']['other'].items()):
             add_port(port, dict['config'])
 
+        for port, dict in config.ingress.items():
+            dict['vlans'].setdefault('accept', [])
+            dict['vlans'].setdefault('rewrite', [])
+            rewrite_vids = []
+            for rewrite in dict['vlans']['rewrite']:
+                rewrite_vids.append(rewrite['in'])
+            for accept in dict['vlans']['accept']:
+                accept.setdefault('mask', 4095)
+                vid = accept['vid']
+                if accept['mask'] == 4095 and vid in rewrite_vids:
+                    raise semantic_error("port {0:s}: VLAN {1:d}: collision "
+                                         "of exact accept and rewrite rules"
+                                         .format(port, vid))
+
         if 'source-filter' in json.keys():
             for str in json['source-filter']:
                 prefix = ipaddress.ip_network(str)
@@ -434,11 +448,20 @@ class PacketBroker:
                     'act_push_vlan',
                     [ { 'name': 'vid', 'val': vlans['push'] } ])
 
+            if 'accept' in vlans:
+                for rule in vlans['accept']:
+                    self.t.ingress_tagged.entry_add(
+                        [ { 'name': 'ingress_port', 'value': dev_port },
+                          { 'name': 'ingress_vid', 'value': rule['vid'],
+                            'mask':  rule.get('mask', 4095) } ],
+                        'NoAction')
+
             if 'rewrite' in vlans:
                 for rule in vlans['rewrite']:
                     self.t.ingress_tagged.entry_add(
                         [ { 'name': 'ingress_port', 'value': dev_port },
-                          { 'name': 'ingress_vid', 'value': rule['in'] } ],
+                          { 'name': 'ingress_vid', 'value': rule['in'],
+                            'mask': 4095 } ],
                         'act_rewrite_vlan',
                         [ { 'name': 'vid', 'val': rule['out'] } ])
                     rewrite = rule.get("mac-rewrite", {})
@@ -475,7 +498,7 @@ class PacketBroker:
                 tbl.table.info.key_field_annotation_add("src_addr", "ipv4")
             else:
                 tbl = self.t.filter_ipv6
-            tbl.table.info.key_field_annotation_add("src_addr", "ipv6")
+                tbl.table.info.key_field_annotation_add("src_addr", "ipv6")
             tbl.entry_add(
                 [ { 'name': 'src_addr', 'value': prefix.network_address.exploded,
                     'prefix_len': prefix.prefixlen } ],

@@ -150,6 +150,28 @@
                                             "$ref": "#/definitions/vlan"
                                         },
 
+                                        "accept": {
+                                            "type": "array",
+
+                                            "items": {
+                                                "type": "object",
+                                                "required": [ "vid" ],
+                                                "properties": {
+                                                    "vid": {
+                                                        "type": "integer",
+                                                        "minimum": 0,
+                                                        "maximum": 4095
+                                                    },
+                                                    "mask": {
+                                                        "type": "integer",
+                                                        "minimum": 0,
+                                                        "maximum": 4095
+                                                    }
+                                                },
+                                                "additionalProperties": false
+                                            }
+                                        },
+
                                         "rewrite": {
                                             "type": "array",
 

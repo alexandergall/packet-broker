@@ -26,6 +26,7 @@ control ctl_drop_packet(
             real_drop;
             send_to_port;
         }
+        size = 1;
         default_action = real_drop;
     }
 

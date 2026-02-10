@@ -5,6 +5,7 @@
 
 #include "metadata.p4"
 #include "drop.p4"
+#include "table-sizes.p4"
 
 control ctl_push_or_rewrite_vlan(
     inout headers hdr,
@@ -26,6 +27,8 @@ control ctl_push_or_rewrite_vlan(
             act_push_vlan;
             @defaultonly act_mark_to_drop(ig_md);
         }
+        // This should cover all Tofino variants
+        size = 256;
         const default_action = act_mark_to_drop(ig_md);
     }
     
@@ -42,6 +45,7 @@ control ctl_push_or_rewrite_vlan(
             act_rewrite_vlan;
             @defaultonly act_mark_to_drop(ig_md);
         }
+        size = TBL_INGRESS_TAGGED_SIZE;
         const default_action = act_mark_to_drop(ig_md);
     }
 
@@ -63,6 +67,7 @@ control ctl_push_or_rewrite_vlan(
             act_rewrite_src_mac;
             @defaultonly NoAction;
         }
+        size = TBL_INGRESS_SRC_MAC_REWRITE_SIZE;
         const default_action = NoAction;
     }
 
@@ -76,6 +81,7 @@ control ctl_push_or_rewrite_vlan(
             act_rewrite_dst_mac;
             @defaultonly NoAction;
         }
+        size = TBL_INGRESS_DST_MAC_REWRITE_SIZE;
         const default_action = NoAction;
     }
 

@@ -30,6 +30,8 @@ control ctl_forward_packet(
             act_output_group;
             @defaultonly act_mark_to_drop(ig_md);
         }
+        // This should cover all Tofino variants
+        size = 256;
         const default_action = act_mark_to_drop(ig_md);
     }
     
@@ -58,6 +60,7 @@ control ctl_forward_packet(
             act_send;
             @defaultonly act_mark_to_drop(ig_md);
         }
+        // This should cover all Tofino variants
         size = 256;
         implementation = port_groups_sel;
         const default_action = act_mark_to_drop(ig_md);

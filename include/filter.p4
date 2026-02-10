@@ -6,6 +6,7 @@
 #include "metadata.p4"
 #include "headers.p4"
 #include "drop.p4"
+#include "table-sizes.p4"
 
 DirectCounter<bit<64>>(CounterType_t.PACKETS_AND_BYTES) filter_ipv4_stats;
 
@@ -26,6 +27,7 @@ control ctl_filter_source_ipv4(
             act_drop();
             @defaultonly NoAction;
         }
+        size = TBL_FILTER_SOURCE_IPV4_SIZE;
         counters = filter_ipv4_stats;
         const default_action = NoAction;
     }
@@ -54,6 +56,7 @@ control ctl_filter_source_ipv6(
             act_drop();
             @defaultonly NoAction;
         }
+        size = TBL_FILTER_SOURCE_IPV6_SIZE;
         counters = filter_ipv6_stats;
         const default_action = NoAction;
     }

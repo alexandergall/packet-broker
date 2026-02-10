@@ -6,6 +6,7 @@
 #include "types.p4"
 #include "headers.p4"
 #include "metadata.p4"
+#include "table-sizes.p4"
 
 action act_mirror(
     inout ingress_metadata_t ig_md,
@@ -34,6 +35,7 @@ control ctl_mirror_flows_ipv4(
             act_mirror(ig_md);
             @defaultonly NoAction;
         }
+        size = TBL_MIRROR_FLOWS_SIZE;
         const default_action = NoAction;
     }
     
@@ -60,6 +62,7 @@ control ctl_mirror_flows_ipv6(
             act_mirror(ig_md);
             @defaultonly NoAction;
         }
+        size = TBL_MIRROR_FLOWS_SIZE;
         const default_action = NoAction;
     }
 
@@ -82,6 +85,7 @@ control ctl_mirror_flows_non_ip(
             act_mirror(ig_md);
             @defaultonly NoAction;
         }
+        size = TBL_MIRROR_FLOWS_SIZE;
         const default_action = NoAction;
     }
 

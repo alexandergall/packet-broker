@@ -1,0 +1,18 @@
+/* -*- mode: P4-16 -*- */
+
+#ifndef _TABLE_SIZES_P4_
+#define _TABLE_SIZES_P4_
+
+#define TBL_INGRESS_TAGGED_SIZE 2048
+#define TBL_INGRESS_SRC_MAC_REWRITE_SIZE 2048
+#define TBL_INGRESS_DST_MAC_REWRITE_SIZE 2048
+#define TBL_FILTER_SOURCE_IPV4_SIZE 1024
+#define TBL_FILTER_SOURCE_IPV6_SIZE 1024
+// Limited by the number of mirror sessions
+#if __TARGET_TOFINO__ == 1
+#define TBL_MIRROR_FLOWS_SIZE 1023
+#else
+#define TBL_MIRROR_FLOWS_SIZE 255
+#endif
+
+#endif // _TABLE_SIZES_P4_

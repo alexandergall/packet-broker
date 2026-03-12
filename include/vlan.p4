@@ -1,4 +1,4 @@
-/* -*- mode: P4_16 -*- */
+/* -*- mode: P4-16 -*- */
 
 #ifndef _VLAN_P4_ 
 #define _VLAN_P4_ 

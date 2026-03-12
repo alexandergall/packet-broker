@@ -1,4 +1,4 @@
-/* -*- mode: P4_16 -*- */
+/* -*- mode: P4-16 -*- */
 
 #ifndef _HEADERS_P4_ 
 #define _HEADERS_P4_ 
@@ -40,6 +40,15 @@ struct headers {
     ipv4_options_t ipv4_options;
     ipv6_t ipv6;
     ipv6_frag_t ipv6_frag;
+}
+
+struct erspan_headers {
+    ethernet_t ethernet;
+    vlan_t vlan;
+    ipv4_t ipv4;
+    ipv6_t ipv6;
+    gre_h gre;
+    erspan_typeII_h erspan;
 }
 
 #endif // _HEADERS_P4_

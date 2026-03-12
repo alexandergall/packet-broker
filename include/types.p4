@@ -1,4 +1,4 @@
-/* -*- mode: P4_16 -*- */
+/* -*- mode: P4-16 -*- */
 
 #ifndef _TYPES_P4_ 
 #define _TYPES_P4_ 
@@ -18,13 +18,15 @@ struct l4_lookup_t {
 enum bit<8>  ip_proto_t {
     TCP       = 6,
     UDP       = 17,
-    IPV6_FRAG = 44
+    IPV6_FRAG = 44,
+    GRE       = 47
 }
 
 enum bit<16> ethertype_t {
     VLAN = 0x8100,
     IPV4 = 0x0800,
-    IPV6 = 0x86dd
+    IPV6 = 0x86dd,
+    ERSPAN_II = 0x88be
 }
 
 // Modes of packet mirroring set by the act_mirror() action

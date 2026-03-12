@@ -16,6 +16,7 @@ ctls = {
     'mirror_ipv4' : 'pipe.ig_ctl.ctl_mirror_flows_ipv4',
     'mirror_ipv6' : 'pipe.ig_ctl.ctl_mirror_flows_ipv6',
     'mirror_non_ip' : 'pipe.ig_ctl.ctl_mirror_flows_non_ip',
+    'mirror_encap': 'pipe.eg_ctl.ctl_mirror_encap',
     'maybe_exclude_l4_from_hash' : 'pipe.ig_ctl.ctl_maybe_exclude_l4_from_hash',
     'maybe_drop_fragment' : 'pipe.ig_ctl.ctl_maybe_drop_fragment',
     'maybe_drop_non_ip' : 'pipe.ig_ctl.ctl_maybe_drop_non_ip',
@@ -33,7 +34,13 @@ tables = {
     'port_hdl_info': '$PORT_HDL_INFO',
     ## Keys: $sid
     'mirror_cfg': '$mirror.cfg',
-    
+    ## Keys: none (only the default entry exists)
+    ## The fully qualified name of this table depends on the Tofino
+    ## version: "tf{1,2}.dev.device_configuration"
+    ## The non-qualified name conveniently gives us the configuration
+    ## without having to check what we're running on first.
+    'dev_cfg': 'device_configuration',
+
     ### Program tables
     ## Keys: ingress_port
     'ingress_untagged': ctls['vlan'] + '.tbl_ingress_untagged',
@@ -53,6 +60,12 @@ tables = {
     'mirror_ipv6': ctls['mirror_ipv6'] + '.tbl_mirror_flows_ipv6',
     ## Keys: ingress_port
     'mirror_non_ip': ctls['mirror_non_ip'] + '.tbl_mirror_flows_non_ip',
+    ## Keys: mirror_session
+    'mirror_encap_l2': ctls['mirror_encap'] + '.tbl_mirror_encap_l2',
+    ## Keys: mirror_session
+    'mirror_encap_l3': ctls['mirror_encap'] + '.tbl_mirror_encap_l3',
+    ## Keys: mirror_session
+    'mirror_encap_l4': ctls['mirror_encap'] + '.tbl_mirror_encap_l4',
     ## Keys: ingress_port
     'select_output': ctls['forward'] + '.tbl_select_output',
     ## Keys: egress_group
@@ -68,7 +81,78 @@ tables = {
     ## Keys: None
     'maybe_drop_fragment': ctls['maybe_drop_fragment'] + '.tbl_maybe_drop_fragment',
     ## Keys: None
-    'maybe_drop_non_ip': ctls['maybe_drop_non_ip'] + '.tbl_maybe_drop_non_ip'
+    'maybe_drop_non_ip': ctls['maybe_drop_non_ip'] + '.tbl_maybe_drop_non_ip',
+
+    ### Register tables
+    ### Key: register index
+    'encap_sequence': ctls['mirror_encap'] + '.sequence'
+
+}
+field_annotations = {
+    'ingress_src_mac_rewrite': {
+        'key': [
+            [ 'src_mac_addr', 'mac' ]
+        ],
+        'data': [
+            [ 'mac_addr', 'act_rewrite_src_mac', 'mac' ],
+        ]
+    },
+    'ingress_dst_mac_rewrite': {
+        'key': [
+            [ 'dst_mac_addr', 'mac' ]
+        ],
+        'data': [
+            [ 'mac_addr', 'act_rewrite_dst_mac', 'mac' ],
+        ]
+    },
+    'filter_ipv4': {
+        'key': [
+            [ 'src_addr', 'ipv4' ]
+        ]
+    },
+    'filter_ipv6': {
+        'key': [
+            [ 'src_addr', 'ipv6' ]
+        ]
+    },
+    'mirror_encap_l2': {
+        'data': [
+            [ 'src_mac', 'act_mirror_encap_l2', 'mac' ],
+            [ 'dst_mac', 'act_mirror_encap_l2', 'mac' ],
+            [ 'src_mac', 'act_mirror_encap_l2_vlan', 'mac' ],
+            [ 'dst_mac', 'act_mirror_encap_l2_vlan', 'mac' ]
+        ]
+    },
+    'mirror_encap_l3': {
+        'data': [
+            [ 'src', 'act_mirror_encap_ipv4', 'ipv4' ],
+            [ 'dst', 'act_mirror_encap_ipv4', 'ipv4' ],
+            [ 'src', 'act_mirror_encap_ipv6', 'ipv6' ],
+            [ 'dst', 'act_mirror_encap_ipv6', 'ipv6' ]
+        ]
+    },
+    'mirror_ipv4': {
+        'key': [
+            [ 'src_addr', 'ipv4' ],
+            [ 'dst_addr', 'ipv4' ]
+        ]
+    },
+    'mirror_ipv6': {
+        'key': [
+            [ 'src_addr', 'ipv6' ],
+            [ 'dst_addr', 'ipv6' ]
+        ]
+    },
+    'filter_ipv4': {
+        'key': [
+            [ 'src_addr', 'ipv4' ]
+        ]
+    },
+    'filter_ipv6': {
+        'key': [
+            [ 'src_addr', 'ipv6' ]
+        ]
+    }
 }
 
 ## Mappings of values of the $SPEED field in the
@@ -114,12 +198,14 @@ def json_load(name):
 
 class Config:
     def __init__(self):
+        self.system = {}
         self.ports = {}
         self.groups = {}
         self.groups_ref = {}
         self.ingress = {}
         self.source_filter = []
         self.source_filter_d = []
+        self.monitor_sessions = {}
         self.flow_mirror = []
         self.features = {
             'drop-non-initial-fragments': False,
@@ -140,6 +226,12 @@ class PacketBroker:
 
         for name, loc in tables.items():
             setattr(self.t, name, bfrt.table(name, loc))
+            annotations = field_annotations.get(name, None)
+            if annotations is not None:
+                for elts in annotations.get('key', []):
+                    getattr(self.t, name).table.info.key_field_annotation_add(*elts)
+                for elts in annotations.get('data', []):
+                    getattr(self.t, name).table.info.data_field_annotation_add(*elts)
 
         ## Remove all shared memory segments to get rid of left-overs
         ## from previous runs
@@ -147,6 +239,53 @@ class PacketBroker:
             for file in files:
                 os.unlink(self.ifmibs_dir+'/'+file)
         self.ifmibs = {}
+
+        ## Build the mapping of front-panel port names to device port
+        ## numbers and vice versa.
+
+        ## NOTE: the port_str_info table also contains the Eth CPU
+        ## ports. However, they might not show up when iterating over
+        ## the full table at least for devices with the maximum number
+        ## of serdes lanes, which is 260, including the quad for the
+        ## Eth CPU ports. The sizes of the port tables are fixed at
+        ## 256 entries in the SDE, which might be a bug: the iteration
+        ## stops before reaching the very last four entries which tend
+        ## to be the Eth CPU quad. In any case, these canonical names
+        ## of the Eth CPU ports will be replaced by generic names that
+        ## are the same for all platforms below.
+        self.ports_name2dev = {}
+        self.ports_dev2name = {}
+        for _data, _key in self.t.port_str_info.entry_get_iterator(None):
+            data = _data.to_dict()
+            key = _key.to_dict()
+            name = key['$PORT_NAME']['value']
+            dev = data['$DEV_PORT']
+            self.ports_name2dev[name] = dev
+            self.ports_dev2name[dev] = name
+
+        ## Get the device configuration and extract the dev ports of
+        ## the PCIe and Eth CPU ports to generate identifiers for
+        ## those ports.
+        self.dev_cfg = self.t.dev_cfg.default_entry_get()
+        n = 0
+        for dev_port in self.dev_cfg['eth_cpu_port_list']:
+            ## Replace the canonical name of the port. It might not
+            ## have been registered due to the issue mentioned above
+            name = self.ports_dev2name.pop(dev_port, None)
+            if name is not None:
+                self.ports_name2dev.pop(name)
+            eth_cpu_port = f'EthCPU{n}'
+            self.ports_name2dev[eth_cpu_port] = dev_port
+            self.ports_dev2name[dev_port] = eth_cpu_port
+            logger.info(f'Registering Eth CPU port {eth_cpu_port}' +
+                        f' as device port {dev_port}')
+            n += 1
+        pcie_cpu_port = 'PCIeCPU'
+        pcie_cpu_dev_port = self.dev_cfg['pcie_cpu_port']
+        logger.info(f'Registering PCIe CPU port {pcie_cpu_port} as'
+                    + f' device port {pcie_cpu_dev_port}')
+        self.ports_name2dev[pcie_cpu_port] = pcie_cpu_dev_port
+        self.ports_dev2name[pcie_cpu_dev_port] = pcie_cpu_port
 
         ## Whenever a new configuration is pushed to the device, all
         ## tables are cleared and re-programmed, except for the
@@ -164,13 +303,14 @@ class PacketBroker:
             port = _port.to_dict()
             key = _key.to_dict()
             name = port['$PORT_NAME']
+            dev_port = key['$DEV_PORT']['value']
             logger.info("Port {0}({1}), Enable {2}, Up {3}".format(
                 name,
-                key['$DEV_PORT']['value'],
+                dev_port,
                 port['$PORT_ENABLE'],
                 port['$PORT_UP']
             ))
-            config.ports[name] = {
+            config.ports[dev_port] = {
                 'description': '',
                 'speed': port['$SPEED'],
                 'mtu': port['$RX_MTU'],
@@ -179,12 +319,24 @@ class PacketBroker:
             }
         self.config = config
 
+    def _is_tf1(self):
+        return 'T10' in self.dev_cfg['sku']
+
+    def _is_tf2(self):
+        return 'T20' in self.dev_cfg['sku']
+
     def _get_dev_port(self, port):
-        info = self.t.port_str_info.entry_get(
-            [{ 'name': '$PORT_NAME', 'value': port }])
-        if info is None:
+        try:
+            port = self.ports_name2dev[port]
+        except:
             raise semantic_error("invalid port {0:s}".format(port))
-        return info['$DEV_PORT']
+        return port
+
+    def _get_port_name(self, dev_port):
+        if dev_port in self.ports_dev2name:
+            return self.ports_dev2name[dev_port]
+        else:
+            return str(dev_port)
 
     def _msgs_clear(self):
         self.msgs = []
@@ -265,8 +417,56 @@ class PacketBroker:
     def _parse(self, json):
         config = Config()
 
+        def inc_mac(mac_in):
+            mac = int(mac_in.replace(":",""),16) + 1
+            mac = (hex(mac).removeprefix("0x")).rjust(12,'0')
+            return ":".join([ mac[i:i+2] for i in range(0, len(mac), 2)])
+
+        def get_src_mac(dev_port, context):
+            if 'port-macs' not in config.system:
+                raise semantic_error(f'{context}: MAC address pool configuration required')
+            if dev_port in config.system['port-macs']:
+                return config.system['port-macs'][dev_port]
+            try:
+                mac = config.system['system-macs'].pop(0)
+            except:
+                raise semantic_error("Can't assign MAC address to port " +
+                                     f'{dev_port}, system pool exhausted')
+            return mac
+
+        system = json.get('system', None)
+        if system is not None:
+            mac_pools = system.get('mac-address-pools', None)
+            if mac_pools is not None:
+                config.system['port-macs'] = {}
+                config.system['system-macs'] = {}
+                mac = mac_pools['port']['base']
+                size = mac_pools['port']['size']
+                ## Assign MAC addresses to external ports and Eth CPU ports
+                for dev_port in self.dev_cfg['external_port_list'] + self.dev_cfg['eth_cpu_port_list']:
+                    config.system['port-macs'][dev_port] = mac
+                    mac = inc_mac(mac)
+                if size < len(config.system['port-macs']):
+                    logger.warn(f"Port MAC address pool exhausted: size {size}, assigned {len(config.system['port-macs'])}")
+
+                mac = mac_pools['system']['base']
+                size = mac_pools['system']['size']
+                config.system['system-macs'] = []
+                for i in range(1, size + 1):
+                    config.system['system-macs'].append(mac)
+                    mac = inc_mac(mac)
+
+            ip = system.get('ip', None)
+            if ip is not None:
+                config.system['ipv4'] = ipaddress.IPv4Address(ip['addressv4'])
+                config.system['ipv6'] = ipaddress.IPv6Address(ip['addressv6'])
+
+        ## All ports in the parsed configuration are validated and
+        ## translated to device ports to catch all related errors
+        ## before the configuration is pushed to the hardware
         def add_port(port, port_config):
-            if port in config.ports.keys():
+            dev_port = self._get_dev_port(port)
+            if dev_port in config.ports:
                 raise semantic_error("port {0:s} already defined".format(port))
             full_config = {
                 'description': '',
@@ -274,7 +474,8 @@ class PacketBroker:
                 'shutdown': False
             }
             full_config.update(port_config)
-            config.ports[port] = full_config
+            config.ports[dev_port] = full_config
+            return dev_port
 
         for group in json['ports']['egress']:
             id = group['group-id']
@@ -283,13 +484,13 @@ class PacketBroker:
             
             config.groups[id] = {}
             for port, dict in sorted(group['members'].items()):
-                add_port(port, dict['config'])
-                config.groups[id][port] = {}
+                dev_port = add_port(port, dict['config'])
+                config.groups[id][dev_port] = {}
 
         for port, dict in sorted(json['ports']['ingress'].items()):
-            add_port(port, dict['config'])
+            dev_port = add_port(port, dict['config'])
             egress_group = dict['egress-group']
-            config.ingress[port] = {
+            config.ingress[dev_port] = {
                 'vlans' : dict['vlans'],
                 'egress_group' : egress_group
             }
@@ -327,12 +528,101 @@ class PacketBroker:
         except Exception as e:
             self._warning("Ignoring dynamic source filters: {}".format(e))
             config.source_filter_d = []
-            
-        if 'flow-mirror' in json.keys():
+
+        if 'monitor-sessions' in json.keys():
+            if self._is_tf1() and len(json['monitor-sessions']) > 1023:
+                raise semantic_error(f'Monitor session {id}: restricted to 1023 on Tofino1')
+            if self._is_tf2() and len(json['monitor-sessions']) > 255:
+                raise semantic_error(f'Monitor session {id}: restricted to 255 on Tofino2')
+            sessions = {}
+            erspan_sessions = []
+            mirror_sessions = []
+            for name, session_in in json['monitor-sessions'].items():
+                session_in.setdefault('max-packet-length', 0)
+                mirror_session = None
+                if name in self.config.monitor_sessions:
+                    ## Preserve the mirror session ID for existing sessions
+                    mirror_session = self.config.monitor_sessions[name]['mirror_session']
+                    mirror_sessions.append(mirror_session)
+                session = {
+                    'mirror_session': mirror_session,
+                }
+                egress_dev_port = self._get_dev_port(session_in['egress-port'])
+                session['egress-port'] = egress_dev_port
+                encap_overhead = 0
+                if 'encapsulation' in session_in:
+                    session['encapsulation'] = {}
+                    ## ERSPAN is currently the only supported encapsulation
+                    erspan_in = session_in['encapsulation']['erspan']
+                    erspan_in['ip'].setdefault('ttl', 64)
+                    erspan = {
+                        "session-id": erspan_in['session-id'],
+                        "reset-seq": True if mirror_session == None else False,
+                        "ethernet": erspan_in['ethernet'].copy(),
+                        "ip": erspan_in['ip'].copy()
+                    }
+                    erspan['ethernet']['src'] = get_src_mac(egress_dev_port,
+                                                            'ERSPAN encapsulation')
+                    erspan['ip']['dst'] = ipaddress.ip_address(erspan_in['ip']['dst'])
+                    if erspan['ip']['dst'].version == 4:
+                        erspan['ip']['src'] = config.system['ipv4']
+                    else:
+                        erspan['ip']['src'] = config.system['ipv6']
+                    erspan['ip']['ttl'] = erspan_in['ip']['ttl']
+                    session['encapsulation']['erspan'] = erspan
+
+                    ## An ERSPAN session is uniquely identified by the
+                    ## tuple (source, destination, session-id).
+                    session_tuple =  (erspan['ip']['src'].exploded +
+                                      erspan['ip']['dst'].exploded +
+                                      f"{erspan['session-id']}")
+                    if session_tuple in erspan_sessions:
+                        raise semantic_error(f"ERSPAN session {erspan['ip']['src']}, " +
+                                             f"{erspan['ip']['dst']}, {erspan['session-id']} " +
+                                             "is not unique")
+                    else:
+                        erspan_sessions.append(session_tuple)
+
+                    ## Ethernet + GRE + ERSPAN
+                    encap_overhead = 14 + 8 + 8
+                    if 'vlan' in erspan['ethernet']:
+                        encap_overhead += 4
+                    if erspan['ip']['src'].version == 4:
+                        encap_overhead += 20
+                    else:
+                        encap_overhead += 40
+
+                ## Cap the size of mirrored packets to not exceed the
+                ## egress MTU.
+                max_packet_len = session_in['max-packet-length']
+                if egress_dev_port in config.ports:
+                    ## Only the PCIe CPU port doesn't have an MTU
+                    egress_mtu = config.ports[egress_dev_port]['mtu']
+                    if max_packet_len == 0 or max_packet_len + encap_overhead > egress_mtu:
+                        max_packet_len = egress_mtu - encap_overhead
+                        logger.info(f"Monitor session {id} on egress interface "
+                                    + f"{session_in['egress-port']}: clamping mirror "
+                                    + f"packet size at {max_packet_len} bytes to fit MTU "
+                                    + f"{egress_mtu}")
+                session['max-packet-length'] = max_packet_len
+                config.monitor_sessions[name] = session
+
+            ## Allocate a mirror session ID for new monitor sessions
+            sessions_avail = list(set([ i for i in range(1, 1024) ]) - set(mirror_sessions))
+            for session in config.monitor_sessions.values():
+                if session['mirror_session'] is None:
+                    ## Mirror sessions are numbered from 1
+                    session['mirror_session'] = sessions_avail.pop(0)
+
+        if 'flow-mirror' in json:
+            de_duplicate = []
             def add_flow(flow_in):
                 flow = flow_in.copy()
-                #flow.pop('bidir', None)
-                #flow.pop('enable', None)
+                if flow['monitor-session'] not in config.monitor_sessions:
+                    raise semantic_error(("Undefined monitor session {} " +
+                                         "in flow mirror rule: {}").
+                                         format(flow['monitor-session'], JSON.dumps(flow_in)))
+
                 flow['src'] = ipaddress.ip_network(flow['src'])
                 flow['dst'] = ipaddress.ip_network(flow['dst'])
 
@@ -341,22 +631,20 @@ class PacketBroker:
                                          "in flow mirror rule: {}".
                                          format(JSON.dumps(flow_in)))
 
-                flow['ingress-ports'] = [ self._get_dev_port(port) for port in sorted(flow.pop('ingress-ports', [])) ]
-                egress_port = flow['egress-port']
-                if not re.match("^[0-9]+$", egress_port):
-                    egress_port = self._get_dev_port(port)
-                flow['egress-port'] = egress_port
+                flow['ingress-ports'] = [ self._get_dev_port(port) for port in
+                                          sorted(flow.pop('ingress-ports', [])) ]
 
-                if flow in config.flow_mirror:
+                _flow = flow.copy()
+                _flow.pop('monitor-session')
+                if _flow in de_duplicate:
                     self._warning("Ignoring duplicate flow mirror rule: {}".
                                   format(JSON.dumps(flow_in)))
                 else:
+                    de_duplicate.append(_flow)
                     config.flow_mirror.append(flow)
 
             for flow in json['flow-mirror']:
-                flow.setdefault("ingress-ports", [])
                 flow.setdefault("mirror-mode", "ingress")
-                flow.setdefault("max-packet-length", 0)
                 flow.setdefault("non-ip", False)
                 flow.setdefault("enable", True)
                 flow.setdefault("bidir", False)
@@ -376,9 +664,7 @@ class PacketBroker:
         features = json.get('features', {})
         for feature, value in features.items():
             if feature == 'deflect-on-drop':
-                if not re.match("^[0-9]+$", value):
-                    value = self._get_dev_port(value)
-                config.features['deflect-on-drop'] = int(value)
+                config.features['deflect-on-drop'] = int(self._get_dev_port(value))
 
             if feature == 'drop-non-initial-fragments' and value:
                 config.features['drop-non-initial-fragments'] = True
@@ -404,7 +690,9 @@ class PacketBroker:
                 'bool_arr_val': status } ])
 
     def _push(self, config):
-        get_dev_port = self._get_dev_port
+
+        ### Note: all ports have been validated and converted to
+        ### device ports during parsing
         
         ### Action profile and selector
         ## Order matters here
@@ -417,8 +705,7 @@ class PacketBroker:
             ## Group is not referenced from
             ## the forwarding table
             config.groups_ref[group] = False
-            for port, member in members.items():
-                dev_port = get_dev_port(port)
+            for dev_port, member in members.items():
                 member['id'] = member_id
                 member['status'] = False
                 self.t.port_groups.entry_add(
@@ -433,8 +720,7 @@ class PacketBroker:
         self.t.ingress_src_mac_rewrite.clear()
         self.t.ingress_dst_mac_rewrite.clear()
         self.t.ingress_tagged.clear()
-        for port, dict in sorted(config.ingress.items()):
-            dev_port = get_dev_port(port)
+        for dev_port, dict in sorted(config.ingress.items()):
             vlans = dict['vlans']
             egress_group = dict['egress_group']
             self.t.select_output.entry_add(
@@ -477,10 +763,6 @@ class PacketBroker:
                         field = dir + "_mac_addr"
                         action = "act_rewrite_" + dir + "_mac"
                         for addr, new_addr in spec.items():
-                            tbl.table.info.key_field_annotation_add(field, "mac")
-                            tbl.table.info.data_field_annotation_add("mac_addr",
-                                                                     action,
-                                                                     "mac")
                             tbl.entry_add(
                                 [ { 'name': 'ingress_port', 'value': dev_port },
                                   { 'name': 'ingress_vid', 'value': rule['in'] },
@@ -493,25 +775,95 @@ class PacketBroker:
         for prefix in (config.source_filter + config.source_filter_d):
             if prefix.version == 4:
                 tbl = self.t.filter_ipv4
-                ## Makes entry_add() accept "src_addr" as a string rather than
-                ## a byte array
-                tbl.table.info.key_field_annotation_add("src_addr", "ipv4")
             else:
                 tbl = self.t.filter_ipv6
-                tbl.table.info.key_field_annotation_add("src_addr", "ipv6")
             tbl.entry_add(
                 [ { 'name': 'src_addr', 'value': prefix.network_address.exploded,
                     'prefix_len': prefix.prefixlen } ],
                 'act_drop', [])
 
+        self.t.mirror_cfg.clear()
         self.t.mirror_ipv4.clear()
         self.t.mirror_ipv6.clear()
         self.t.mirror_non_ip.clear()
-        self.t.mirror_cfg.clear()
-        mirror_session = 0
+        self.t.mirror_encap_l2.clear()
+        self.t.mirror_encap_l3.clear()
+        self.t.mirror_encap_l4.clear()
+        for session_name, session in config.monitor_sessions.items():
+            ## Configure the mirror session parameters. We use BOTH as
+            ## direction because a monitor session can contain
+            ## flow-mirrors with either direction.
+            mirror_session = session['mirror_session']
+            self.t.mirror_cfg.entry_add(
+                [ { 'name': '$sid', 'value': mirror_session } ],
+                '$normal',
+                [ { 'name': '$session_enable', 'bool_val': True },
+                  { 'name': '$direction', 'str_val': "BOTH" },
+                  { 'name': '$ucast_egress_port', 'val': session['egress-port'] },
+                  { 'name': '$ucast_egress_port_valid', 'bool_val': True },
+                  { 'name': '$max_pkt_len', 'val': session['max-packet-length'] } ])
+
+            if 'encapsulation' in session:
+                encap = session['encapsulation']['erspan']
+
+                ### L2
+                if encap['ip']['src'].version == 4:
+                    ethertype = 0x0800
+                else:
+                    ethertype = 0x86dd
+                if 'vlan' not in encap['ethernet']:
+                    self.t.mirror_encap_l2.entry_add(
+                        [ { 'name': 'mirror_session', 'value': mirror_session } ],
+                        'act_mirror_encap_l2',
+                        [ { 'name': 'src_mac', 'val': encap['ethernet']['src'] },
+                          { 'name': 'dst_mac', 'val': encap['ethernet']['dst'] },
+                          { 'name': 'ethertype', 'val': ethertype } ])
+                else:
+                    self.t.mirror_encap_l2.entry_add(
+                        [ { 'name': 'mirror_session', 'value': mirror_session } ],
+                        'act_mirror_encap_l2_vlan',
+                        [ { 'name': 'src_mac', 'val': encap['ethernet']['src'] },
+                          { 'name': 'dst_mac', 'val': encap['ethernet']['dst'] },
+                          { 'name': 'ethertype', 'val': ethertype },
+                          { 'name': 'vid', 'val': encap['ethernet']['vlan'] } ])
+
+                ### L3
+                if encap['ip']['src'].version == 4:
+                    action = 'act_mirror_encap_ipv4'
+                    ## total length: IP(20) + GRE(8) + ERSPAN(8)
+                    length = 36
+                else:
+                    action = 'act_mirror_encap_ipv6'
+                    ## payload length: GRE(8) + ERSPAN(8)
+                    length = 16
+                self.t.mirror_encap_l3.entry_add(
+                    [ { 'name': 'mirror_session', 'value': mirror_session } ],
+                    action,
+                    [ { 'name': 'src', 'val': encap['ip']['src'].exploded },
+                      { 'name': 'dst', 'val': encap['ip']['dst'].exploded },
+                      ## IP protocol number for GRE
+                      { 'name': 'proto', 'val': 47 },
+                      { 'name': 'length', 'val': length },
+                      { 'name': 'ttl', 'val': encap['ip']['ttl'] } ])
+
+                ### L4
+                if encap['reset-seq']:
+                    reg_name = tables['encap_sequence'].removeprefix('pipe.') + '.f1'
+                    self.t.encap_sequence.entry_mod(
+                        [ { 'name': '$REGISTER_INDEX', 'value': mirror_session } ],
+                        None,
+                        [ { 'name': reg_name, 'val': 0 } ]
+                    )
+                    logger.info(f'Reset sequence number for new ERSPAN session {session_name}')
+                self.t.mirror_encap_l4.entry_add(
+                    [ { 'name': 'mirror_session', 'value':   mirror_session} ],
+                    'act_mirror_encap_erspan',
+                    [ { 'name': 'session', 'val': int(encap['session-id']) } ])
+
         for flow in config.flow_mirror:
             if not flow['enable']:
                 continue
+            mirror_session = config.monitor_sessions[flow['monitor-session']]['mirror_session']
             ports = flow['ingress-ports']
             port_mask = 0x1ff;
             if len(ports) == 0:
@@ -519,13 +871,8 @@ class PacketBroker:
                 port_mask = 0
             if flow['src'].version == 4:
                 tbl = self.t.mirror_ipv4
-                tbl.table.info.key_field_annotation_add("src_addr", "ipv4")
-                tbl.table.info.key_field_annotation_add("dst_addr", "ipv4")
             else:
                 tbl = self.t.mirror_ipv6
-                tbl.table.info.key_field_annotation_add("src_addr", "ipv6")
-                tbl.table.info.key_field_annotation_add("dst_addr", "ipv6")
-            mirror_session += 1
             mirror_mode = mirror_modes[flow['mirror-mode']]
             for port in ports:
                 if flow.get('non-ip', False):
@@ -557,15 +904,6 @@ class PacketBroker:
                         [ { 'name': 'mirror_session', 'val': mirror_session },
                           { 'name': 'mirror_mode' , 'val': mirror_mode } ])
 
-            self.t.mirror_cfg.entry_add(
-                [ { 'name': '$sid', 'value': mirror_session } ],
-                '$normal',
-                [ { 'name': '$session_enable', 'bool_val': True },
-                  { 'name': '$direction', 'str_val':
-                    mirror_mode == mirror_modes['ingress'] and 'INGRESS' or 'EGRESS' },
-                  { 'name': '$ucast_egress_port', 'val': flow['egress-port'] },
-                  { 'name': '$ucast_egress_port_valid', 'bool_val': True },
-                  { 'name': '$max_pkt_len', 'val': flow['max-packet-length'] } ])
             
         self.t.drop.default_entry_reset()
         self.t.maybe_drop_fragment.default_entry_reset()
@@ -586,18 +924,16 @@ class PacketBroker:
         if  config.features['drop-non-ip']:
             self.t.maybe_drop_non_ip.default_entry_set('act_mark_to_drop')
 
-        for port, pconfig in sorted(config.ports.items()):
-            dev_port = get_dev_port(port)
-
-            if port in self.config.ports.keys():
-                if self.config.ports[port] == pconfig:
+        for dev_port, pconfig in sorted(config.ports.items()):
+            if dev_port in self.config.ports:
+                if self.config.ports[dev_port] == pconfig:
                     method = None
                 else:
                     method = self.t.port.entry_mod
-                    if self.config.ports[port]['shutdown'] != pconfig['shutdown']:
+                    if self.config.ports[dev_port]['shutdown'] != pconfig['shutdown']:
                         self._info("port {0} administrative status changed to {1}".
-                                   format(port, 'down' if pconfig['shutdown'] else 'up'))
-                del self.config.ports[port]
+                                   format(dev_port, 'down' if pconfig['shutdown'] else 'up'))
+                del self.config.ports[dev_port]
             else:
                 method = self.t.port.entry_add
             if method is not None:
@@ -613,18 +949,26 @@ class PacketBroker:
                 port_config.append({ 'name': '$SPEED', 'str_val': speed }),
                 method([ { 'name': '$DEV_PORT', 'value': dev_port } ], None, port_config)
 
-            if dev_port not in self.ifmibs.keys():
-                self.ifmibs[dev_port] = mib.ifmib(self.ifmibs_dir+'/'+re.sub('/', '_', port))
-            self.ifmibs[dev_port].set_properties(
-                { 'ifDescr': port.encode('ascii'),
-                  'ifName': port.encode('ascii'),
-                  'ifAlias': pconfig['description'].encode('ascii'),
-                  'ifMtu': pconfig['mtu'],
-                  'speed': if_speed[pconfig['speed']] }
+            ## Use front-port names in the interface MIB. Dev ports
+            ## that are not associated with such a name are not
+            ## represented there. Note that the PCIe CPU port never
+            ## occurs here because it is not allowed in the list of
+            ## configured ports.
+            if dev_port in self.ports_dev2name:
+                port_name = self.ports_dev2name[dev_port]
+                if dev_port not in self.ifmibs:
+                    self.ifmibs[dev_port] = mib.ifmib(self.ifmibs_dir+'/'+re.sub('/', '_', port_name))
+                self.ifmibs[dev_port].set_properties(
+                    { 'ifDescr': port_name.encode('ascii'),
+                      'ifName': port_name.encode('ascii'),
+                      'ifAlias': pconfig['description'].encode('ascii'),
+                      'ifMtu': pconfig['mtu'],
+                      'speed': if_speed[pconfig['speed']] }
             )
 
-        for port in sorted(self.config.ports.keys()):
-            dev_port = get_dev_port(port)
+        ## The old config now only contains ports that are not present
+        ## in the new config
+        for dev_port in sorted(self.config.ports.keys()):
             self.t.port.entry_del([ { 'name': '$DEV_PORT', 'value': dev_port } ])
             ## It is possible that a port exists but was not added by
             ## us (e.g. port added via bfshell, Tofino model starts up
@@ -643,11 +987,11 @@ class PacketBroker:
             stat_t = self.t.port_stat.entry_get(
                 [ { 'name': '$DEV_PORT', 'value': dev_port } ])
             old_oper_status, new_oper_status = ifTable.update(port_t, stat_t)
-            port = port_t['$PORT_NAME']
-            status[port] = port_t['$PORT_UP']
+            port_name = port_t['$PORT_NAME']
+            status[dev_port] = port_t['$PORT_UP']
             if old_oper_status != new_oper_status:
                 logger.info("port {0} operational status changed to {1}".
-                      format(port, 'up' if new_oper_status == 1 else 'down'))
+                      format(port_name, 'up' if new_oper_status == 1 else 'down'))
 
         for group, members in self.config.groups.items():
             update = False
@@ -657,7 +1001,7 @@ class PacketBroker:
                 if member['status'] != status[port]:
                    member['status'] = status[port]
                    logger.info("egress group {0} status of member port {1} changed to {2}".
-                         format(group, port, 'up' if status[port] else 'down'))
+                         format(group, self._get_port_name(port), 'up' if status[port] else 'down'))
                    update = True
             if update:
                 if not at_least_one_valid:
@@ -734,6 +1078,7 @@ class PacketBroker:
             'ingress': 'ingress',
             'source-filter': 'source_filter',
             'source-filter-dynamic': 'source_filter_d',
+            'monitor-sessions': 'monitor_sessions',
             'flow-mirror': 'flow_mirror',
             'features': 'features'
         }
@@ -790,9 +1135,6 @@ class PacketBroker:
                     if prefix in config.source_filter + config.source_filter_d:
                         raise Exception("Duplicate source filter: {}".
                                         format(prefix))
-                    ## Makes entry_add() accept "src_addr" as a string rather than
-                    ## a byte array
-                    tables[prefix.version].table.info.key_field_annotation_add("src_addr", "ipv4")
                     tables[prefix.version].entry_add(
                         [ { 'name': 'src_addr',
                             'value': prefix.network_address.exploded,

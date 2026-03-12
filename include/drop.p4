@@ -1,4 +1,4 @@
-/* -*- mode: P4_16 -*- */
+/* -*- mode: P4-16 -*- */
 
 #ifndef _DROP_P4_ 
 #define _DROP_P4_ 

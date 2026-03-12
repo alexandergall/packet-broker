@@ -1,4 +1,4 @@
-/* -*- mode: P4_16 -*- */
+/* -*- mode: P4-16 -*- */
 
 #ifndef _MIRROR_P4_ 
 #define _MIRROR_P4_ 
@@ -35,7 +35,7 @@ control ctl_mirror_flows_ipv4(
             act_mirror(ig_md);
             @defaultonly NoAction;
         }
-        size = TBL_MIRROR_FLOWS_SIZE;
+        size = TBL_FLOW_MIRROR_SIZE;
         const default_action = NoAction;
     }
     
@@ -62,7 +62,7 @@ control ctl_mirror_flows_ipv6(
             act_mirror(ig_md);
             @defaultonly NoAction;
         }
-        size = TBL_MIRROR_FLOWS_SIZE;
+        size = TBL_FLOW_MIRROR_SIZE;
         const default_action = NoAction;
     }
 
@@ -85,7 +85,7 @@ control ctl_mirror_flows_non_ip(
             act_mirror(ig_md);
             @defaultonly NoAction;
         }
-        size = TBL_MIRROR_FLOWS_SIZE;
+        size = TBL_FLOW_MIRROR_SIZE;
         const default_action = NoAction;
     }
 

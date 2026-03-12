@@ -11,11 +11,19 @@ class Table:
         self.name = name
         self.loc = loc
         self.table = bfrt.info.table_get(loc)
-        ## Not used in the code. This dict contains the TableInfo
-        ## object for the table. It can be used to inspect the
-        ## properties, e.g. to find the names of all valid actions:
-        ## self.table_info.action_name_list_get()
-        self.table_info = bfrt.info.parsed_info.table_info_dict[loc]
+
+        ## table_info is not used in the code. This dict contains the
+        ## TableInfo object for the table. It can be used to inspect
+        ## the properties, e.g. to find the names of all valid
+        ## actions: self.table_info.action_name_list_get()
+        ##
+        ## The table_info_dict is keyed wih the fully-qualified table
+        ## names, where as the table_get() method above also accepts
+        ## non-qualified names as long as they are unique. This call
+        ## to get the qualified name of a table seems to be
+        ## non-public.
+        qualified_loc = self.table.info.name_get()
+        self.table_info = bfrt.info.parsed_info.table_info_dict[qualified_loc]
 
     def _mk_key(self, keys):
         if keys is not None:
@@ -79,6 +87,14 @@ class Table:
         self.table.entry_mod(self.bfrt.target,
                              self._mk_key(keys),
                              [ self._mk_action(action_name, action_data) ])
+
+    def default_entry_get(self):
+        resp = self.table.default_entry_get(self.bfrt.target)
+        try:
+            data = next(resp)[0].to_dict()
+        except:
+            return None
+        return data
 
     def default_entry_set(self, action_name, action_data = []):
         self.table.default_entry_set(self.bfrt.target,

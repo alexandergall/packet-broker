@@ -18,6 +18,7 @@ def dump(args):
     item = args.command_1
     return {
         'source-filter': [ 'filter_ipv4', 'filter_ipv6' ],
+        'monitor-sessions': [ 'mirror_encap_l2', 'mirror_encap_l3', 'mirror_encap_l4' ],
         'flow-mirror': [ 'mirror_ipv4', 'mirror_ipv6' ],
         'ingress': [ 'ingress_tagged', 'ingress_untagged' ],
         'mac-rewrite': [ 'ingress_src_mac_rewrite', 'ingress_dst_mac_rewrite' ],
@@ -95,6 +96,9 @@ parse_tree = {
                 'source-filter': {
                     'help': "Source filters",
                 },
+                'monitor-sessions': {
+                    'help': "Monitor sessions",
+                },
                 'flow-mirror': {
                     'help': "Flow mirror rules",
                 },
@@ -109,6 +113,9 @@ parse_tree = {
             'commands': {
                 'source-filter': {
                     'help': "Source filters"
+                },
+                'monitor-sessions': {
+                    'help': "Monitor sessions"
                 },
                 'flow-mirror': {
                     'help': "Flow mirror rules"
@@ -167,6 +174,9 @@ logger = logging.getLogger('brokerctl')
 
 prsr = argparse.ArgumentParser(description = "Packet Broker controller")
 create_subparser(prsr, parse_tree)
+if len(sys.argv) == 1:
+    prsr.print_help(sys.stderr)
+    sys.exit(2)
 args = prsr.parse_args()
 if not args.host:
     args.host = [ 'localhost' ]

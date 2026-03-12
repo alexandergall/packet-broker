@@ -1,4 +1,4 @@
-/* -*- mode: P4_16 -*- */
+/* -*- mode: P4-16 -*- */
 
 #ifndef _FORWARD_P4_ 
 #define _FORWARD_P4_ 

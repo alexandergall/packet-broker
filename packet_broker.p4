@@ -21,6 +21,7 @@
 #include "include/hash.p4"
 #include "include/forward.p4"
 #include "include/mirror.p4"
+#include "include/mirror-encap.p4"
 
 control ig_ctl(
     inout headers hdr, inout ingress_metadata_t ig_md,
@@ -94,10 +95,10 @@ control ig_ctl(
 //
 // For mirrored packets, the egress pipe can apply optional encapsulation
 // based on the mirror session identifier to implement ERSPAN-type
-// functionality (not yet implemented).
+// functionality.
 
 control eg_ctl(
-    inout headers hdr,
+    inout erspan_headers hdr,
     inout egress_metadata_t eg_md,
     in    egress_intrinsic_metadata_t eg_intr_md,
     in    egress_intrinsic_metadata_from_parser_t eg_prsr_md,
@@ -118,23 +119,13 @@ control eg_ctl(
 #endif
     }
 
-    // Not yet implemented
-    table tbl_mirror_encap {
-        key = {}
-        actions = {
-            @defaultonly NoAction;
-        }
-        size = 1;
-        const default_action = NoAction;
-    }
-
     apply {
         if (eg_md.bridge.isValid() && eg_md.bridge.eg_mirror_session != 0) {
             // Egress mirroring was requested by the ingress pipe.
             act_eg_mirror();
         }
         if (eg_md.mirror.isValid()) {
-           tbl_mirror_encap.apply();
+           ctl_mirror_encap.apply(hdr, eg_md, eg_intr_md);
         }
     }
 }

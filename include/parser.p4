@@ -1,4 +1,4 @@
-/* -*- mode: P4_16 -*- */
+/* -*- mode: P4-16 -*- */
 
 #ifndef _PARSER_P4_ 
 #define _PARSER_P4_ 
@@ -142,7 +142,7 @@ control ig_ctl_dprs(
 
 parser eg_prs(
     packet_in pkt,
-    out headers hdr,
+    out erspan_headers hdr,
     out egress_metadata_t eg_md,
     out egress_intrinsic_metadata_t eg_intr_md)
 {
@@ -168,11 +168,12 @@ parser eg_prs(
 
 control eg_ctl_dprs(
     packet_out pkt,
-    inout headers hdr,
+    inout erspan_headers hdr,
     in egress_metadata_t eg_md,
     in egress_intrinsic_metadata_for_deparser_t eg_dprsr_md)
 {
     Mirror() mirror;
+    Checksum() ipv4_checksum;
 
     apply {
         if (eg_dprsr_md.mirror_type == DPRSR_MIRROR_TYPE) {
@@ -181,6 +182,21 @@ control eg_ctl_dprs(
             // header.
             mirror.emit<mirror_t>(eg_md.bridge.eg_mirror_session,
                 { eg_md.packet_type, eg_md.bridge.eg_mirror_session });
+        }
+        if (hdr.ipv4.isValid()) {
+            hdr.ipv4.hdr_checksum = ipv4_checksum.update({
+                    hdr.ipv4.version,
+                    hdr.ipv4.ihl,
+                    hdr.ipv4.diffserv,
+                    hdr.ipv4.total_len,
+                    hdr.ipv4.identification,
+                    hdr.ipv4.flags,
+                    hdr.ipv4.frag_offset,
+                    hdr.ipv4.ttl,
+                    hdr.ipv4.protocol,
+                    hdr.ipv4.src_addr,
+                    hdr.ipv4.dst_addr,
+           });
         }
         pkt.emit(hdr);
     }

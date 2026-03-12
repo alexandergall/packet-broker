@@ -80,68 +80,102 @@ packet after processing, i.e. as it appears on the egress port.
 
 ## <a name="tofino-ports"></a>Port Designations on Tofino Platforms
 
-The first-generation Tofino ASIC has 256 10/25G SerDes Lanes, grouped
-into 64 ports with 4 lanes each. It has an additional port, referred
-to as _CPU Eth_, which also supports 1G operation on each lane as well
-as a PCIe interface, referred to as _CPU PCIe_, consisting of 4 Gen3
-lanes.  The main purpose of the latter two ports is to exchange
-packets with the host CPU, hence their names.
+### Tofino1
 
-The ASIC has 4 packet-processing pipelines, numbered from 0 to 3, each
-of which has 16 ports hardwired to it.  Each SerDes line is uniquely
-identified by its _device id_ (also referred to as physical id in this
+The first generation of the Tofino ASIC has 18 ports, numbered from 0
+to 17, on each processing pipe with 4 SerDes lanes each, which is the
+reason these ports are also referred to as *quads*. Quads 0 to 15
+represent regular ports with SerDes lanes capable of 10/25Gbps and
+quad #17 is always dedicated to packet recirculation. The function of
+quad #16 depends on whether the ASIC has 2 or 4 pipes (numbered from 0
+to 3) and can be one of the following
+
+   * Recirculation port
+   * Eth CPU port
+   * PCIe CPU port
+
+The Eth CPU port has four MACs capabale of 25/10/5/2.5/1Gbps and is
+always located on pipe #0.
+
+The PCIe CPU port has one PCIe link consisting of four Gen3 lanes with
+8Gps each. On a 4-pipe ASIC it is located on pipe #2 while on a 2-pipe
+ASIC it is located on pipe #1.
+
+On a 4-pipe ASIC, quad #16 is configured as recirculation port on
+pipes #1 and #3.
+
+The main purpose of the CPU ports is to exchange packets with
+the host CPU, hence their names.
+
+Independent of their purpose, each SerDes line is uniquely identified
+by its _device id_ (also referred to as physical id in this
 document). This ID is a 9-bit number whose two most-significant bits
 denote the number of the pipe to which the lane is connected.  The
 lower 7 bits denote the number of the SerDes lane within the pipe
 starting with 0, i.e. the lanes on pipe 0 have device ids 0 through
-63, those on pipe 1 have ids 128 through 191 etc.
+63, those on pipe 1 have ids 128 through 191 etc. The PCIe CPU port is
+represented as a single physical id.
 
-The four lanes of the CPU Eth port are associated with pipe 0 and have
-the device ids 64-67.
+### Tofino2
 
-The CPU PCIe port is special in the sense that its device id depends
-on whether the ASIC is used in a 4 pipe or a 2 pipe configuration.  In
-the former, the port's id is 320 while in the latter it is 192.
+The second generation of Tofino ASICs only comes in a 4-pipe
+configuration. Each pipe has 9 groups with 8 SerDes lanes each. Groups
+1 to 8 have 8 lanes capable of 50/25/10Gbps. Group #0 on pipes 1 to 3
+has 8 recirculation ports. On pipe #0, group #0 has 3 recirculation
+ports, 4 Eth CPU (40/25/10/5/2.5/1G) and one PCIe CPU port (4x8Gbps
+Gen3 lanes)
 
-How many of the pipelines are used and which of the ports are exposed
-on the front plate of the chassis as physical connectors depends on
-the device type.  Examples for such devices are the WEDGE100BF-64X and
-WEDGE100BF-32X from Edgecore Networks.
+The physical ids are assigned as for the Tofino1.
 
-The WEDGE100BF-64X uses all four pipes and exposes 64 QSFP ports for
-all regular 256 SerDes Lanes.  On that model, the CPU Eth port is
-exposed as an additional QSFP port on the front panel as well.
+### Named ports
 
-The WEDGE100BF-32X uses two pipes and exposes 32 QSFP ports on the
-front panel.
+In an actual device, most of the SerDes ports are exposed as regular
+network ports equipped with some kind of transciever, typically with
+SFP+, QSFP or QSFP-DD form-factors. These ports are also called
+"front-panel ports". Apart from their physical id, these lanes can
+also be addressed with logical names pertaining to their location on
+the front panel. The names are of the form `<connector>/<channel>`,
+where `<connector>` enumerates the physical connector and `<channel>`
+identifies the lane within that connector. The latter is in the range
+from 0 to 3 and 0 to 7 for Tofino1 and Tofino2, respectively.
 
-The QSFP ports are numbered 1-65 and 1-32 on the 64X and the 32X,
-respectively (port 65 on the 64X is the CPU Eth port).  Instead of
-using device ids, the physical lanes within these ports are addressed
-by specifying the port and lane number separated by a slash, where the
-lane number ranges from 0 to 3.  For example, `2/3` refers to the
-fourth lane in QSFP port 2.
+We refer to these ports as "named ports". For the Tofino SDE, all
+ports have a name except for recirculation ports and the PCIe CPU
+port, irrespective of the actual layout of a specific device. The
+following table lists the assignment for three of the Tofino reference
+platforms from Edge-corE networks
 
-This is also the notation used in the configuration file of the packet
-broker wherever a QSFP ports needs to be referenced.
+| Device    | ASIC         | Pipes | Connectors |Eth CPU Ports      |
+|-----------|--------------|-------|------------|-------------------|
+| DCS800    | BFN-T10-032D |   2   | 1 - 32     |33/0 33/1/33/2/33/3|
+| DCS801    | BFN-T10-032Q |   4   | 1 - 32, 601 - 663 |33/0 33/1 33/2 33/3|
+| DCS802    | BFN-T10-064Q |   4   | 1 - 64     |65/0 65/1 65/2 65/4|
+| DCS810    | BFN-T20-128Q |   4   | 1 - 32     |33/0 33/1/33/2 33/3|
 
-On the 32X, the CPU Eth port is not wired to the front panel as on the
-64X.  Instead, two of its lanes are connected to a dual-port 10G Intel
-NIC on the main board (note that it may be necessary to enable these
-ports in the BIOS before they become available).  The port itself can
-be addressed like one of the physical Ports with port id 33.  Once the
-system has booted, there will be two 10G ports available as devices
-`enp4s0f0` and `enp4s0f1`. The association with the ports on the ASIC
-is as follows
+The Eth CPU ports of the DCS800, DSC801 and DCS810 are wired to 10G
+ethernet adapters on the main board (actually, only two of them are
+connected and usable) but on the DCS802 they are wired to the
+front-plate as an additional 100G QSFP port.
 
-   * 33/0 -> `enp4s0f1`
-   * 33/2 -> `enp4s0f0`
+On the DCS801, none of the ports of pipes 1 and 3 are wired to the
+front-plate. Instead, they are fixed in a loopback configuration and
+not connected to anything, essentially acting as 32 additional
+recirculation ports. Nevertheless, they can still be addressed by
+names with connector numbers starting with 601 and using only odd
+numbers (i.e. 601, 603 etc. up to 663).
 
-They can be used like any other port in the packet broker
+###  <a name="namedPorts"></a>Port Naming Conventions used by the Packet Broker
+
+The packet broker configuration only allows named ports with the
+exception of the PCIe CPU port, which can be referred to by the name
+`PCIeCPU`. Even though the Eth CPU ports have a natural name, the
+packet broker replaces them by the names `EthCPU<n>`, where `<n>`
+ranges from 0 to 3. These names are the same irrespectve of the
+platform while the natural names are not, thus simplifying the
 configuration.
 
-In contrast to this, the CPU PCIe port can only be referred to by its
-device id (320 or 192, see above).
+In addition, `PCIeCPU` can only be used as egrees port for
+flow-mirrors and the `deflect-on-drop` feature (see below).
 
 ## <a name="architecture"></a>Architecture
 
@@ -327,6 +361,8 @@ The overall structure is the following
 
 ```
 {
+  "system": {
+  },
   "ports": {
     "ingress": {
     },
@@ -337,6 +373,8 @@ The overall structure is the following
   },
   "source-filter": [
   ],
+  "monitor-sessions": [
+  ],
   "flow-mirror": [
   ],
   "features": {
@@ -346,6 +384,87 @@ The overall structure is the following
 
 Each of these blocks is described in detail in the following sections.
 
+### System settings
+
+The `system` section is optional and has the following format
+
+```
+"system": {
+  "mac-address-pools": {
+    "port": {
+      "base": "<mac-base-address>",
+      "size": <pool-size>
+    },
+    "system": {
+      "base": "<mac-base-address>",
+      "size": <pool-size>
+    },
+  },
+  "ip": {
+    "addressv4": "<system-ipv4-address>",
+    "addressv6": "<system-ipv6-address>"
+  }
+}
+```
+
+The `mac-address-pools` section is optional unless monitor sessions
+using the ERSPAN encapsulation exist. If present, it must include the
+`port` and `system` subsections. The `port` section defines a
+contigous block of MAC addresses which is large enough to assign a
+unique address to each SerDes lane of the system. This block of
+addresses is assigned by the manufacturer of the device and stored in
+some kind of non-volatile memory. The control-plane software
+(`bf_switchd` process) can access this information. Ideally, the P4
+runtime system would be able to retreive it programmatically, which
+would make the manual configuration described here
+unnecessary. Unfortunately, this is not the case. However, the UCLI
+accessible through the `bfshell` utility provides access to it from
+the `bf_pltfm.chss_mgmt` context with the `eeprom_data` command:
+
+```
+bf-sde.bf_pltfm.chss_mgmt> eeprom_data
+...
+Extended MAC Address Size: 260
+Extended MAC Base 14:44:8f:be:e4:99
+...
+```
+
+In this example, the system is a Tofino2 platform from Edgecore
+Networks (OUI `14:44:8f`) which provides 260 SerDes lanes (32 regular
+ports with 8 lanes each and 4 lanes for Eth CPU ports). The vendor has
+assigned 260 addresses from `14:44:8f:be:e4:99` to `14:44:8f:be:e5:9c`
+(inclusive).
+
+The `system` MAC address pool is an additional block of MAC addresses
+provided by the vendor to be used by the control-plane, e.g. for
+software interfaces. The base address and size of this block can be
+obtained from the same UCLI context with the `sys_mac_get` command:
+
+```
+bf-sde.bf_pltfm.chss_mgmt> sys_mac_get
+System Mac addr: 04:f8:f8:78:56:5c
+Number of extended addr available 8
+```
+
+In this example, both blocks would be configured as
+
+```
+"ports": {
+  "base": "14:44:8f:be:e4:99",
+  "size": 260
+},
+"system": {
+  "base": "04:f8:f8:78:56:5c",
+  "size": 8
+}
+```
+
+The `ip` subsection is optional unless monitor sessions using the
+ERSPAN encapsulation exist. If present, it must define one IPv4 and
+one IPv6 address assigned to the packet broker application. The
+addresses are used as source addresses for monitor sessions that use
+the ERSPAN encapsulation.
+
 ### Ports
 
 The `ports` section defines which ports should be used by the packet
@@ -354,7 +473,7 @@ broker.  The ports are split into three functional groups `ingress`,
 groups share the following basic configuration
 
 ```
-"<port>/<lane>": {
+"<port>/<lane>|EthCPU{0,1,2,3}": {
   "config": {
     "description": <description>,
     "speed": <speed>,
@@ -365,11 +484,11 @@ groups share the following basic configuration
 }
 ```
 
-The interface is identified by its `<port>` and `<lane>` in the
-slash-notation introduced above.  The `<port>` corresponds to the
-labeling of the QSFP ports on the front panel of the device and
-`<lane>` ranges from 0 to 3, e.g. `1/0` refers to lane 0 on QSFP port
-1.
+The name of the port must be either in the form of `<port>/<lane>` or
+name one of the Eth CPU ports. On Tofino1, `<lane>` ranges from 0 to 3
+and on Tofino2 from 0 to 7. Note that the PCIe CPU port (named
+`PCIeCPU`) can not be configured for any subsection of the `ports`
+section.
 
    * `description`, **optional**, default is an empty string
 
@@ -380,7 +499,8 @@ labeling of the QSFP ports on the front panel of the device and
 
    * `speed`, **mandatory**
 
-     The bit rate at which to run the SerDes lane, must be one of
+     For Tofino1, the bit rate at which to run the SerDes lane, must be
+     one of
 
        * `BF_SPEED_1G`
        * `BF_SPEED_10G`
@@ -396,6 +516,19 @@ labeling of the QSFP ports on the front panel of the device and
 
        * `BF_SPEED_40G` and `BF_SPEED_100G` can only be applied to lane 0
        * `BF_SPEED_50G` can only be applied to lanes 0 and 2
+
+    In addition to these speeds, Tofino2 supports the following
+
+       * 'BF_SPEED_200G'
+       * 'BF_SPEED_400G'
+       * 'BF_SPEED_50G_R1'
+       * 'BF_SPEED_100G_R2'
+       * 'BF_SPEED_200G_R8'
+
+    The identifiers ending with `R<n>` select variants of a speed
+    using different numbers of lanes as the standard setting for the
+    same speed. E.g. `BF_SPEED_50G` uses two lanes of 25G while
+    `BF_SPEED_50G_R1` uses a single lane.
 
    * `fec`, **optional**, default is `BF_FEC_TYP_NONE`
 
@@ -573,6 +706,79 @@ The `other` ports section is optional and contains only standard port
 definition clauses.  These ports can be used as egress ports for the
 `flow-mirror` and `deflect-on-drop` features.
 
+### Monitor Sessions
+
+Monitor sessions are used to set parameters for packets generated by
+the `flow-mirror` mechanism. The `monitor-sessions` section is a list
+of elements of the form
+
+```
+"<session-name>": {
+  "encapsulation": {
+    "erspan": {
+      "session-id": <session-id>,
+      "ethernet": {
+        "dst": <dst-mac-address>,
+        "vlan": <vlan>
+      },
+      "ip": {
+        "dst": "<dst-ip-address>",
+        "ttl": <ttl>
+      }
+    }
+  },
+  "egress-port": "<port>",
+  "max-packet-length": <max-packet-length>
+}
+```
+
+The `<session-name>` may only contain letters, numbers, hyphens and
+underscores. The number of sessions is restricted to 1023 on Tofino1
+and 255 on Tofino2.
+
+Each monitor session can be associated with any number of flow mirrors
+(up to the number of supported flow rules).
+
+The `encapsulation` section is optional. If omitted, mirrored packets
+are emitted without any encapsulation.
+
+Currently, the only supported encapsulation is ERSPAN Type II as
+specified in an [informational Internet
+draft](https://datatracker.ietf.org/doc/html/draft-foschiano-erspan-03). This
+encapsulation consists of either a IPv4 or IPv6 header without options
+or extension headers (20 or 40 bytes, respectively), a plain GRE
+header with sequence number (8 bytes) and an ERSPAN header (8
+bytes). Since the packet broker currently doesn't support any L3
+functionality, a static Ethernet header is included as well.
+
+The `session-id` element is required. It must be a number in the range
+from 0 to 1023, inclusive, and must uniquely identifiy an ERSPAN
+session with the same source and destination (see section 4.2 of the
+ERSPAN specification). The sequence number carried in the ERSPAN
+header is initialized to 0 when a session (identified by the 3-tuple
+source, destination, `session-id`) is created and increases
+monotonically with every mirrored packet until the session is removed.
+
+The `ethernet` subsection is required. It must specify the MAC address
+of the neighbor to which the packet needs to be sent. The `vlan` field
+is optional. If present, the specified ID is added to the header as an
+802.1Q VLAN tag. The source MAC address is selected automatically from
+one of the system's MAC address pools based on the `egress-port`.
+
+The `ip` subsection is required. It must specify either an IPv4 or
+IPv6 address. The source address is the adress of matching address
+family specified in the `ip` subsection of the `system` section. The
+`ttl` field is optional and defaults to 64.
+
+The `egress-port` is mandatory and must be a [named port](#namedPorts)
+or `PCIeCPU` to select the PCIe CPU port.
+
+The `max-packet-length` is optional and defaults to 16384. It
+specifies the maximum number of bytes to which the mirrored packet
+will be truncated. This value is automatically adjusted to the MTU of
+the egress interface, taking into account the overhead of the
+encapsulation headers.
+
 ### Source Filter
 
 The `source-filter` section is optional. It contains a list of strings
@@ -593,19 +799,19 @@ dropped.
 ### Flow Mirror
 
 The `flow-mirror` section is optional.  It contains a list of flow
-patterns for the purpose of packet mirroring. A copy of every packet
-arriving on any of the ingress interfaces or a subset thereof which
-matches any of the flow patterns in this list is sent to the port
-specified in the `egress-port` property.
+patterns for the purpose of packet mirroring. Each flow is associated
+with a monitor session defined in the `monitor-sessions` section. A
+copy of every packet arriving on any of the ingress interfaces or a
+subset thereof which matches any of the flow patterns in this list is
+sent to the port specified in the referenced monitor session.
 
 A flow pattern is defined as follows
 
 ```
 {
+  "monitor-session": <session-name>,
   "ingress-ports": [ <port>, ... ],
-  "egress-port": <port>,
   "mirror-mode": "ingress"|"egress",
-  "max-packet-length": <lenght>,
   "non-ip": true|false,
   "src": <srcPrefix>,
   "dst": <dstPrefix>,
@@ -620,20 +826,12 @@ The `ingress-ports` list is optional. If omitted, the mirroring rules
 are applied to all ingress ports. Otherwise, the rules are only
 applied to the ports in the list.
 
-The `egress-port` property is required. It specifies the port to which
-the mirror copy of the packet is sent.
-
 The `mirror-mode` property is optional. It must be either `"ingress"`
 or `"egress"`. In ingress mode, the mirrored packet is a copy of the
 original packet as it was received by the device. In egress mode, the
 mirrored packet is a copy of the packet as it leaves the device,
 i.e. containing all the modifications applied by the processing
 pipeline. The default value is `"ingress"`.
-
-The `max-packet-length` property sets the maximum number of bytes to
-which mirrored packets are truncated. The range of valid values is
-from 0 to 16384, inclusive. The default is 0, which disables
-truncation.
 
 If the optional property `non-ip` is present and set to `true`, all
 packets that are neither IPv4 (Ethertype `0x0800`) or IPv6 (Ethertype
@@ -690,20 +888,16 @@ given below.  The basic structure is as follows
 ```
 
 If the `deflect-on-drop` feature is configured, all packets that are
-marked to be dropped are forwarded to the specified port instead.  The
-port can be specified either as a string of the form `"<port>/<lane>"`
-just as in the `ports` section or as a number representing the
-[physical port id](#tofino-ports). The latter is really only needed to
-select the CPU PCIe ports, which are the only ports that do not have a
-representation as a `<port>/<lane>` pair (they are identified by 192
-and 320 for the 32X and 64X platforms, respectively).
+marked to be dropped are forwarded to the specified port instead.
+This must be a [named port](#namedPorts) or `PCIeCPU`.
 
 A packet is marked to be dropped if any of the following conditions
 are met
 
    * The packet is untagged but the ingress port doesn't have a `push`
      directive
-   * The packet is tagged but the ingress port either doesn't have a
+   * The packet is tagged but it doesn't match any pattern in the list
+     of accepted tags or the ingress port either doesn't have a
      `rewrite` section or the VLAN ID does not match any of the `"in"`
      fields
    * The packet is an IPv4 or IPv6 packet and belongs to any of the
@@ -880,21 +1074,20 @@ The `show` command is used to display various components of the
 currently active configuration. Its usage is
 
 ```
-usage: brokerctl show [-h]
-                      {ingress,features,flow-mirror,source-filter,groups,ports}
-                      ...
+usage: brokerctl show [-h] {ports,groups,ingress,source-filter,monitor-sessions,flow-mirror,features} ...
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
 
-  {ingress,features,flow-mirror,source-filter,groups,ports}
+  {ports,groups,ingress,source-filter,monitor-sessions,flow-mirror,features}
                         Show running configuration
-    ingress             Ingress processing
-    features            Features
-    flow-mirror         Flow mirror rules
-    source-filter       Source filters
-    groups              Port configurations
     ports               Port configurations
+    groups              Port configurations
+    ingress             Ingress processing
+    source-filter       Source filters
+    monitor-sessions    Monitor sessions
+    flow-mirror         Flow mirror rules
+    features            Features
 ```
 
 The output is generated from the daemon's in-memory copy of the
@@ -1012,20 +1205,19 @@ fields in the output corresponds to the corresponding names used in
 the definition of the table in the P4 source code.  The usage is
 
 ```
-usage: brokerctl dump [-h]
-                      {ingress,select-output,flow-mirror,source-filter,mac-rewrite,forward}
-                      ...
+usage: brokerctl dump [-h] {source-filter,monitor-sessions,flow-mirror,ingress,mac-rewrite,select-output,forward} ...
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
 
-  {ingress,select-output,flow-mirror,source-filter,mac-rewrite,forward}
+  {source-filter,monitor-sessions,flow-mirror,ingress,mac-rewrite,select-output,forward}
                         Dump tables from hardware
-    ingress             Ingress VLAN push/rewrite rules
-    select-output       Ingress port to output group mapping
-    flow-mirror         Flow mirror rules
     source-filter       Source filters
+    monitor-sessions    Monitor sessions
+    flow-mirror         Flow mirror rules
+    ingress             Ingress VLAN push/rewrite rules
     mac-rewrite         Ingress source MAC rewrite rules
+    select-output       Ingress port to output group mapping
     forward             Output group to port mapping
 ```
 

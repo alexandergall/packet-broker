@@ -812,15 +812,14 @@ A flow pattern is defined as follows
   "monitor-session": <session-name>,
   "ingress-ports": [ <port>, ... ],
   "mirror-mode": "ingress"|"egress",
-  "non-ip": true|false,
-  "src": <srcPrefix>,
-  "dst": <dstPrefix>,
-  "src_port": { "port": <src-port>, "mask": <src-mask> },
-  "dst_port": { "port": <dst-port>, "mask": <dst-mask> },
   "bidir": true|false,
-  "enable": true|false
+  "enable": true|false,
+  "match": { "ethernet" {} | "ipv4" {} | "ipv6" {} }
 }
 ```
+
+The `monitor-session` property is mandatory and must reference one of the
+sessions defined in the `monitor-sessions` section.
 
 The `ingress-ports` list is optional. If omitted, the mirroring rules
 are applied to all ingress ports. Otherwise, the rules are only
@@ -833,44 +832,154 @@ mirrored packet is a copy of the packet as it leaves the device,
 i.e. containing all the modifications applied by the processing
 pipeline. The default value is `"ingress"`.
 
-If the optional property `non-ip` is present and set to `true`, all
-packets that are neither IPv4 (Ethertype `0x0800`) or IPv6 (Ethertype
-`0x86dd`) are mirrored and all match fields are ignored.
-
-If `non-ip` is omitted or set to `false`, the fields `src`, `dst`,
-`src_port`, and `dst_port` determine which packets are selected for
-mirroring.  Ternary matches are used when comparing the patterns with
-the corresponding fields in the packets arriving on the ingress ports.
-This means that each pattern consists of a value and a mask, where the
-mask is as wide as the value in terms of the number of bits.  Only
-those bits whose corresponding bit in the mask is equal to 1 are
-relevant. All bits in the value whose corresponding bit in the mask is
-0 are ignored. A mask value of 0 effectively ignores the entire field.
-
-The `src` and `dst` field must use standard prefix notation, e.g.
-`"192.168.10.0/24"` or `"2001:db8:1::/64"`.  The mask is derived from
-the prefix length.  The prefixes in both fields must belong to the
-same address family (IPv4 or IPv6).
-
-The `src_port` and `dst_port` fields match UDP or TCP port numbers,
-which must be in the range from 0 to 65535.  The mask must be
-specified explicitly as a decimal number in the same range.
-
-Any of the `src`, `dst`, `src_port` and `dst_port` fields can be
-omitted and have the following defaults:
-
-   * `src`: `"0.0.0.0/0"`
-   * `dst`: `"0.0.0.0/0"`
-   * `src_port`: `{ "port": 0, "mask": 0 }`
-   * `dst_port`: `{ "port": 0, "mask": 0 }`
-
 If the optional `bidir` field is set to `true`, an additional flow
 pattern is automatically generated with all source and destination
-fields reversed.  The default is `false`.
+fields defined in the `match` section reversed.  Note that this may
+lead to an error if the resulting flow pattern is already defined
+elsewhere. The default is `false`.
 
 If the optional `enable` field is set to `false`, the flow pattern is
 not programmed into the hardware and is thus effectively ignored.  The
 default is `true`.
+
+The `match` section defines the criteria that must be met for a packet
+to be associated with the flow mirror. It must contain exactly one of
+the alternatives described below.
+
+Match criteria must be unique across all flow mirrors. Matching rules
+are added to their tables in the order encountered in the
+configuration. This is important for ternary matching. For example,
+given the configuration
+
+```
+"flow-mirror": [
+  {
+    "monitor-session": "foo",
+    "match": {
+      "ipv4": {
+        "src": "192.168.0.0/16"
+      }
+  },
+    "monitor-session": "foo",
+    "match": {
+      "ipv4": {
+        "src": "192.168.1.0/24"
+      }
+  }
+]
+```
+
+a packet with source address 192.168.1.1 will match the first flow
+mirror, i.e. there is no longest-match rule (only ternary matching per
+entry).
+
+#### Ethernet
+
+The ethernet match criteria has the form
+
+```
+"ethernet": {
+  [ "src": { }, ]
+  [ "dst": { }, ]
+  [ "type": "<ethertype>" ]
+}
+```
+
+The `src` and `dst` properties are optional. If present, they must be
+objects of the form
+
+```
+{
+  "address": "<mac-address>"
+  [, "mask": "<mac-mask>" ]
+}
+```
+
+where `<mac-address>` must be a valid MAC address in standard notation
+and `<mac-mask>` is an optional mask for ternary matching in the
+format of a MAC address with the default `ff:ff:ff:ff:ff:ff`, i.e. an
+exact match. The default for `src` and `dst` is
+
+```
+{
+  "address": "00:00:00:00:00:00",
+  "mask": "00:00:00:00:00:00"
+}
+```
+
+which matches any address.
+
+If present, the `ethertype` value must be a string representing a
+hexadecimal 2-byte vlaue with prefix `0x`, e.g. `"0x0800"`. The
+default is to match any Ethertype. If the packet contains a 802.1q
+header (Ethertype `0x8100`), the match is performed against the
+Ethertype of the VLAN header instead.
+
+Note that IPv4 and IPv6 packets (Ethertypes `0x0800` and `0x86dd`,
+respectively) are never matched against ethernet matching rules, hence
+specifying either of these ethertypes will not have any effect. All IP
+packets are only matched against the `ipv4` or `ipv6` match criteria.
+
+#### IPv4, IPv6
+
+The `ipv4` and `ipv6` match criteria have the form
+
+```
+{
+  [  "src": "<src-address>" ]
+  [, "dst": "<dst-address>" ]
+  [, "protocols": [ <proto> [, ... ] ]
+  [, "src-port": {} ]
+  [, "dst-port": {} ]
+}
+```
+
+All properties are optional. If specified, `<src-address>` and
+`<dst-address>` must be valid prefixes of the respective address
+family. The prefix is translated to a ternary match condition with the
+mask derived from the prefix length (e.g. /24 translates to
+`0xffffff00` for IPv4), i.e. an exact match is achieved by specifying
+the maximum prefix length for the addres family (32 and 128 for IPv4
+and IPv6, respectively).
+
+The `protocols` attribute is an optional list of 8-byte values to be
+matched against either the "protocol" field for IPv4 or the "next
+header" field for IPv6 when no extension headers are
+present. Currently, only the fragmentation header is recognised as
+extension header. If such a header is present, the match is performed
+against the fragmentation header's "next header" field instead. If
+neither `src-port` nor `dst-port` is present, the default is to match
+any protocol. Otherwise, `protocols` must specify a subset of the list
+of protocols that support the notion of a "port", currently
+
+   * 6 (TCP)
+   * 17 (UDP)
+
+Any other value will result in a semantic error. If `protocols` is
+omitted but either of `src-port` or `dst-port` is present, it defaults
+to the list of all port-aware protocols.
+
+The optional `src-port` and `dst-port` attributes must be of the form
+
+```
+{
+  "port": <port>
+  [, "mask": <port-mask> ]
+}
+```
+
+where `<port>` must be an integer in the range [ 0, 65535 ] and
+`<port-mask>` must be a string representing a 2-byte hexadecimal value
+with prefix "0x", e.g. `"0x00ff"` for ternary matching. The default
+mask is `"0xffff"`, i.e. exact match. The default for `src-port` and
+`dst-port` is
+
+```
+{
+ "port": 0,
+ "mask": "0x0000"
+}
+```
 
 ### Features
 

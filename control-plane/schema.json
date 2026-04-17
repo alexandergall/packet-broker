@@ -104,6 +104,7 @@
 
         "port-spec": {
             "type": "object",
+            "required": [ "port" ],
             "properties": {
                 "port": {
                     "type": "integer",
@@ -111,9 +112,7 @@
                     "maximum": 65535
                 },
                 "mask": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 65535
+                    "$ref": "#/definitions/hex-string-16"
                 }
             }
         },
@@ -123,11 +122,56 @@
             "pattern": "^([a-f0-9]{2}:){5}([a-f0-9]){2}$"
         },
 
+        "mac-address-spec": {
+            "type": "object",
+            "required": [ "address" ],
+            "properties": {
+                "address": {
+                    "$ref": "#/definitions/mac-address-pattern"
+                },
+                "mask": {
+                    "$ref": "#/definitions/mac-address-pattern"
+                }
+            }
+        },
+
         "mac-rewrite": {
             "type": "object",
             "patternProperties": {
                 "^([a-f0-9]{2}:){5}[a-f0-9]{2}$": {
                     "$ref": "#/definitions/mac-address-pattern"
+                }
+            },
+            "additionalProperties": false
+        },
+
+        "hex-string-16": {
+            "type": "string",
+            "pattern": "^0x[0-9a-fA-F]{1,4}$"
+        },
+
+        "ip-flow-spec": {
+            "type": "object",
+            "properties": {
+                "src": {
+                    "type": "string"
+                },
+                "dst": {
+                    "type": "string"
+                },
+                "protocols": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer",
+                        "min": 0,
+                        "max": 256
+                    }
+                },
+                "src-port": {
+                    "$ref": "#/definitions/port-spec"
+                },
+                "dst-port": {
+                    "$ref": "#/definitions/port-spec"
                 }
             },
             "additionalProperties": false
@@ -377,7 +421,7 @@
 
             "items": {
                 "type": "object",
-                "required": [ "monitor-session" ],
+                "required": [ "monitor-session", "match" ],
 
                 "properties": {
                     "monitor-session": {
@@ -398,26 +442,42 @@
                             "egress"
                         ]
                     },
-                    "non-ip": {
-			"type": "boolean"
-		    },
-                    "src": {
-                        "type": "string"
-                    },
-                    "dst": {
-                        "type": "string"
-                    },
-                    "src_port": {
-                        "$ref": "#/definitions/port-spec"
-                    },
-                    "dst_port": {
-                        "$ref": "#/definitions/port-spec"
-                    },
                     "bidir": {
                         "type": "boolean"
                     },
                     "enable": {
                         "type": "boolean"
+                    },
+                    "match": {
+                        "type": "object",
+                        "oneOf": [
+                            { "required": [ "ethernet" ] },
+                            { "required": [ "ipv4" ] },
+                            { "required": [ "ipv6" ] }
+                        ],
+                        "properties": {
+                            "ethernet": {
+                                "type": "object",
+                                "properties": {
+                                    "src": {
+                                        "$ref": "#/definitions/mac-address-spec"
+                                    },
+                                    "dst": {
+                                        "$ref": "#/definitions/mac-address-spec"
+                                    },
+                                    "type": {
+                                        "$ref": "#/definitions/hex-string-16"
+                                    }
+                                }
+                            },
+                            "ipv4": {
+                                "$ref": "#/definitions/ip-flow-spec"
+                            },
+                            "ipv6": {
+                                "$ref": "#/definitions/ip-flow-spec"
+                            }
+                        },
+                        "additionalProperties": false
                     }
                 },
                 "additionalProperties": false

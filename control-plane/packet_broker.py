@@ -58,7 +58,7 @@ tables = {
     'mirror_ipv4': ctls['mirror_ipv4'] + '.tbl_mirror_flows_ipv4',
     ## Keys: src_addr, dst_addr, src_port, dst_port
     'mirror_ipv6': ctls['mirror_ipv6'] + '.tbl_mirror_flows_ipv6',
-    ## Keys: ingress_port
+    ## Keys: ingress_port, src_mac, dst_mac, ethertype
     'mirror_non_ip': ctls['mirror_non_ip'] + '.tbl_mirror_flows_non_ip',
     ## Keys: mirror_session
     'mirror_encap_l2': ctls['mirror_encap'] + '.tbl_mirror_encap_l2',
@@ -131,6 +131,12 @@ field_annotations = {
             [ 'dst', 'act_mirror_encap_ipv6', 'ipv6' ]
         ]
     },
+    'mirror_non_ip': {
+        'key': [
+            [ 'src', 'mac' ],
+            [ 'dst', 'mac' ]
+        ]
+    },
     'mirror_ipv4': {
         'key': [
             [ 'src_addr', 'ipv4' ],
@@ -154,6 +160,15 @@ field_annotations = {
         ]
     }
 }
+
+## IP protocols that carry a pair of 16-bit port numbers at the start
+## of their headers (source first)
+protocols_with_ports = [
+    6,   # TCP
+    17,  # UDP
+    # 33,  # DCCP
+    # 132, # SCTP
+]
 
 ## Mappings of values of the $SPEED field in the
 ## $PORT table to bps. Used in the ifMIB to set
@@ -614,52 +629,111 @@ class PacketBroker:
                     ## Mirror sessions are numbered from 1
                     session['mirror_session'] = sessions_avail.pop(0)
 
-        if 'flow-mirror' in json:
-            de_duplicate = []
-            def add_flow(flow_in):
-                flow = flow_in.copy()
-                if flow['monitor-session'] not in config.monitor_sessions:
-                    raise semantic_error(("Undefined monitor session {} " +
-                                         "in flow mirror rule: {}").
-                                         format(flow['monitor-session'], JSON.dumps(flow_in)))
-
-                flow['src'] = ipaddress.ip_network(flow['src'])
-                flow['dst'] = ipaddress.ip_network(flow['dst'])
-
-                if flow['src'].version != flow['dst'].version:
-                    raise semantic_error("Address family mismatch " +
-                                         "in flow mirror rule: {}".
-                                         format(JSON.dumps(flow_in)))
-
-                flow['ingress-ports'] = [ self._get_dev_port(port) for port in
-                                          sorted(flow.pop('ingress-ports', [])) ]
-
-                _flow = flow.copy()
-                _flow.pop('monitor-session')
-                if _flow in de_duplicate:
+        flow_rules = []
+        for flow_in in json.get('flow-mirror', []):
+            def add_flow(flow):
+                rs = JSON.dumps(flow['rules'], sort_keys = True)
+                if rs in flow_rules:
                     self._warning("Ignoring duplicate flow mirror rule: {}".
                                   format(JSON.dumps(flow_in)))
                 else:
-                    de_duplicate.append(_flow)
+                    flow_rules.append(rs)
                     config.flow_mirror.append(flow)
 
-            for flow in json['flow-mirror']:
-                flow.setdefault("mirror-mode", "ingress")
-                flow.setdefault("non-ip", False)
-                flow.setdefault("enable", True)
-                flow.setdefault("bidir", False)
-                flow.setdefault("src", "0.0.0.0/0")
-                flow.setdefault("dst", "0.0.0.0/0")
-                flow.setdefault("src_port", { 'mask': 0, 'port': 0 })
-                flow.setdefault("dst_port", { 'mask': 0, 'port': 0 })
-                add_flow(flow)
-                if flow['bidir'] and not flow['non-ip']:
-                    bidir_flow = flow.copy()
-                    bidir_flow['src'] = flow['dst']
-                    bidir_flow['dst'] = flow['src']
-                    bidir_flow['src_port'] = flow['dst_port']
-                    bidir_flow['dst_port'] = flow['src_port']
-                    add_flow(bidir_flow)
+            if flow_in['monitor-session'] not in config.monitor_sessions:
+                raise semantic_error(("Undefined monitor session {} " +
+                                      "in flow mirror rule: {}").
+                                     format(flow_in['monitor-session'], JSON.dumps(flow_in)))
+            flow = {
+                'monitor-session': flow_in['monitor-session'],
+                'mirror-mode': flow_in.get('mirror-mode', 'ingress'),
+                'enable': flow_in.get('enable', True),
+                'bidir': flow_in.get('bidir', False),
+                'ingress-ports': [ self._get_dev_port(port) for port in
+                                      sorted(flow_in.get('ingress-ports', [])) ]
+            }
+
+            for match_name, rules_in in flow_in['match'].items():
+                if match_name == 'ethernet':
+                    match_any = {
+                        'address': '00:00:00:00:00:00',
+                        'mask': '00:00:00:00:00:00'
+                    }
+                    rules_in.setdefault('src', match_any)
+                    rules_in['src'].setdefault('mask', 'ff:ff:ff:ff:ff:ff')
+                    rules_in.setdefault('dst', match_any)
+                    rules_in['dst'].setdefault('mask', 'ff:ff:ff:ff:ff:ff')
+                    rules_in.setdefault('type', None)
+                    flow['rule-type'] = 'l2'
+                    flow['rules'] = rules_in
+                    add_flow(flow)
+                    if flow['bidir']:
+                        _flow = flow.copy()
+                        _flow['rules']['src'] = rules_in['dst']
+                        _flow['rules']['dst'] = rules_in['src']
+                        add_flow(_flow)
+
+                else:
+                    af = { 'ipv4': 4, 'ipv6': 6}[match_name]
+                    if af == 4:
+                        rules_in.setdefault('src', "0.0.0.0/0")
+                        rules_in.setdefault('dst', "0.0.0.0/0")
+                    else:
+                        rules_in.setdefault('src', "::/0")
+                        rules_in.setdefault('dst', "::/0")
+
+                    any_port = { 'port': 0, 'mask': "0x0" }
+                    if bool(set([ 'src-port', 'dst-port']) & set(rules_in.keys())):
+                        ## Port rule is present, protocol must be a subset
+                        ## of the list of supported protocols. Default is
+                        ## all protocols. Missing port spec defaults to
+                        ## any port, missing mask defaults to exact match.
+                        rules_in.setdefault("src-port", any_port)
+                        rules_in['src-port'].setdefault('mask', "0xffff")
+                        rules_in.setdefault('dst-port', any_port)
+                        rules_in['dst-port'].setdefault('mask', "0xffff")
+                        rules_in.setdefault('protocols', protocols_with_ports)
+                        if not set(rules_in['protocols']) <= set(protocols_with_ports):
+                            raise semantic_error(("Port rules are only supported for "
+                                                  +"protocols {}, got {}, in flow {}").
+                                                 format(protocols_with_ports,
+                                                        rules_in['protocols'],
+                                                        JSON.dumps(flow_in)))
+                    else:
+                        ## No port rule is present, default is to match
+                        ## any protocol. Protocol #-1 is translated to a
+                        ## ternary match with mask 0 in _push()
+                        rules_in.setdefault('protocols', [-1])
+                        rules_in['src-port'] = any_port
+                        rules_in['dst-port'] = any_port
+                    flow['rule-type'] = 'l3'
+                    rules = rules_in.copy()
+                    src = ipaddress.ip_network(rules_in['src'])
+                    dst = ipaddress.ip_network(rules_in['dst'])
+                    if src.version != af or dst.version != af:
+                        raise semantic_error("Address family mismatch " +
+                                             "in {} match rule: {}".
+                                             format(match_name, JSON.dumps(flow_in)))
+                    rules['src'] = src.network_address.exploded
+                    rules['src-mask'] = int(src.netmask)
+                    rules['dst'] = dst.network_address.exploded
+                    rules['dst-mask'] = int(dst.netmask)
+                    rules['af'] = af
+                    flow['rules'] = rules
+                    add_flow(flow)
+                    if flow['bidir']:
+                        _flow = flow.copy()
+                        _flow['rules'] = {
+                            'af': rules['af'],
+                            'src': rules['dst'],
+                            'src-mask': rules['dst-mask'],
+                            'dst': rules['src'],
+                            'dst-mask': rules['src-mask'],
+                            'protocols': rules['protocols'],
+                            'src-port': rules['dst-port'],
+                            'dst-port': rules['src-port']
+                        }
+                        add_flow(_flow)
 
         features = json.get('features', {})
         for feature, value in features.items():
@@ -869,42 +943,58 @@ class PacketBroker:
             if len(ports) == 0:
                 ports = [ 0 ]
                 port_mask = 0
-            if flow['src'].version == 4:
-                tbl = self.t.mirror_ipv4
-            else:
-                tbl = self.t.mirror_ipv6
+
+            rules = flow['rules']
             mirror_mode = mirror_modes[flow['mirror-mode']]
             for port in ports:
-                if flow.get('non-ip', False):
+                if flow['rule-type'] == 'l3':
+                    if rules['af'] == 4:
+                        tbl = self.t.mirror_ipv4
+                    else:
+                        tbl = self.t.mirror_ipv6
+                    for protocol in rules['protocols']:
+                        tbl.entry_add(
+                            [ { 'name': 'ingress_port',
+                                'value': port,
+                                'mask': port_mask },
+                              { 'name': 'src_addr',
+                                'value': rules['src'],
+                                'mask': rules['src-mask'] },
+                              { 'name': 'dst_addr',
+                                'value': rules['dst'],
+                                'mask': rules['dst-mask'] },
+                              { 'name': 'protocol',
+                                'value': 0 if protocol < 0 else protocol,
+                                'mask': 0 if protocol < 0 else 0xFF },
+                              { 'name': 'src_port',
+                                'value': rules['src-port']['port'],
+                                'mask': int(rules['src-port']['mask'], 0) },
+                              { 'name': 'dst_port',
+                                'value': rules['dst-port']['port'],
+                                'mask': int(rules['dst-port']['mask'], 0) } ],
+                            'act_mirror',
+                            [ { 'name': 'mirror_session', 'val': mirror_session },
+                              { 'name': 'mirror_mode' , 'val': mirror_mode } ])
+                else:
+                    rules = flow['rules']
                     self.t.mirror_non_ip.entry_add(
                         [ { 'name': 'ingress_port',
                             'value': port,
-                            'mask': port_mask } ],
+                            'mask': port_mask },
+                          { 'name': 'src',
+                            'value': rules['src']['address'],
+                            'mask': rules['src']['mask'] },
+                          { 'name': 'dst',
+                            'value': rules['dst']['address'],
+                            'mask': rules['dst']['mask'] },
+                          { 'name': 'type',
+                            'value': 0 if rules['type'] is None else int(rules['type'], 0),
+                            'mask': 0 if rules['type'] is None else 0xFFFF },
+                         ],
                         'act_mirror',
                         [ { 'name': 'mirror_session', 'val': mirror_session },
                           { 'name': 'mirror_mode', 'val': mirror_mode } ])
-                else:
-                    tbl.entry_add(
-                        [ { 'name': 'ingress_port',
-                            'value': port,
-                            'mask': port_mask },
-                          { 'name': 'src_addr',
-                            'value': flow['src'].network_address.exploded,
-                            'mask': int(flow['src'].netmask) },
-                          { 'name': 'dst_addr',
-                            'value': flow['dst'].network_address.exploded,
-                            'mask': int(flow['dst'].netmask) },
-                          { 'name': 'src_port',
-                            'value': flow['src_port']['port'],
-                            'mask': flow['src_port']['mask'] },
-                          { 'name': 'dst_port',
-                            'value': flow['dst_port']['port'],
-                            'mask': flow['dst_port']['mask'] } ],
-                        'act_mirror',
-                        [ { 'name': 'mirror_session', 'val': mirror_session },
-                          { 'name': 'mirror_mode' , 'val': mirror_mode } ])
 
-            
         self.t.drop.default_entry_reset()
         self.t.maybe_drop_fragment.default_entry_reset()
         self.t.maybe_exclude_l4.default_entry_reset()

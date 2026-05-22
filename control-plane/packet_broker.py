@@ -229,24 +229,15 @@ class Config:
         }
 
 class PacketBroker:
-    ## Pseudo class to let us refer to tables via
-    ## attributes
-    class t:
-        pass
-
     def __init__(self, bfrt, config_dir, ifmibs_dir):
         self.bfrt = bfrt
         self.config_dir = config_dir
         self.ifmibs_dir = ifmibs_dir
 
         for name, loc in tables.items():
-            setattr(self.t, name, bfrt.table(name, loc))
-            annotations = field_annotations.get(name, None)
-            if annotations is not None:
-                for elts in annotations.get('key', []):
-                    getattr(self.t, name).table.info.key_field_annotation_add(*elts)
-                for elts in annotations.get('data', []):
-                    getattr(self.t, name).table.info.data_field_annotation_add(*elts)
+            bfrt.add_table(name, loc, field_annotations.get(name, {}))
+        ## Shortcut
+        self.t = bfrt.tables
 
         ## Remove all shared memory segments to get rid of left-overs
         ## from previous runs

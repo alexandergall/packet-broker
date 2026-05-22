@@ -5,12 +5,26 @@ import inspect
 
 import bfrt_grpc.client as gc
 
+class Tables:
+    def __init__(self):
+        self.names = []
+
+    def add(self, table):
+        assert table.name not in self.names
+        self.names.append(table.name)
+        setattr(self, table.name, table)
+
 class Table:
-    def __init__(self, bfrt, name, loc):
+    def __init__(self, bfrt, name, loc, annotations = {}):
         self.bfrt = bfrt
         self.name = name
         self.loc = loc
         self.table = bfrt.info.table_get(loc)
+
+        for elts in annotations.get('key', []):
+            self.table.info.key_field_annotation_add(*elts)
+        for elts in annotations.get('data', []):
+            self.table.info.data_field_annotation_add(*elts)
 
         ## table_info is not used in the code. This dict contains the
         ## TableInfo object for the table. It can be used to inspect
@@ -127,6 +141,9 @@ class Bfrt:
         self.intf.bind_pipeline_config(program)
         self.target = gc.Target(device_id = device_id, pipe_id = 0xffff)
         self.info = self.intf.bfrt_info_get()
+        self.tables = Tables()
 
-    def table(self, name, loc):
-        return Table(self, name, loc)
+    def add_table(self, name, loc, annotations = {}):
+        table = Table(self, name, loc, annotations)
+        self.tables.add(table)
+        return table

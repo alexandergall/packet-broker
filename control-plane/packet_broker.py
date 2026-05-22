@@ -5,6 +5,7 @@ import json as JSON
 import jsonschema
 import ipaddress
 import mib
+from device import Device
 
 logger = logging.getLogger(__name__)
 
@@ -23,24 +24,6 @@ ctls = {
     'drop' : 'pipe.ig_ctl.ctl_drop_packet'
 }
 tables = {
-    ### Internal tables
-    ## Keys: $DEV_PORT'
-    'port': '$PORT', 
-    ## Keys: $DEV_PORT'
-    'port_stat': '$PORT_STAT',
-    ## Keys: $PORT_NAME
-    'port_str_info': '$PORT_STR_INFO', 
-    ## Keys: $CONN_ID, $CHNL_ID
-    'port_hdl_info': '$PORT_HDL_INFO',
-    ## Keys: $sid
-    'mirror_cfg': '$mirror.cfg',
-    ## Keys: none (only the default entry exists)
-    ## The fully qualified name of this table depends on the Tofino
-    ## version: "tf{1,2}.dev.device_configuration"
-    ## The non-qualified name conveniently gives us the configuration
-    ## without having to check what we're running on first.
-    'dev_cfg': 'device_configuration',
-
     ### Program tables
     ## Keys: ingress_port
     'ingress_untagged': ctls['vlan'] + '.tbl_ingress_untagged',
@@ -233,6 +216,7 @@ class PacketBroker:
         self.bfrt = bfrt
         self.config_dir = config_dir
         self.ifmibs_dir = ifmibs_dir
+        self.dev = Device(bfrt)
 
         for name, loc in tables.items():
             bfrt.add_table(name, loc, field_annotations.get(name, {}))
@@ -246,53 +230,6 @@ class PacketBroker:
                 os.unlink(self.ifmibs_dir+'/'+file)
         self.ifmibs = {}
 
-        ## Build the mapping of front-panel port names to device port
-        ## numbers and vice versa.
-
-        ## NOTE: the port_str_info table also contains the Eth CPU
-        ## ports. However, they might not show up when iterating over
-        ## the full table at least for devices with the maximum number
-        ## of serdes lanes, which is 260, including the quad for the
-        ## Eth CPU ports. The sizes of the port tables are fixed at
-        ## 256 entries in the SDE, which might be a bug: the iteration
-        ## stops before reaching the very last four entries which tend
-        ## to be the Eth CPU quad. In any case, these canonical names
-        ## of the Eth CPU ports will be replaced by generic names that
-        ## are the same for all platforms below.
-        self.ports_name2dev = {}
-        self.ports_dev2name = {}
-        for _data, _key in self.t.port_str_info.entry_get_iterator(None):
-            data = _data.to_dict()
-            key = _key.to_dict()
-            name = key['$PORT_NAME']['value']
-            dev = data['$DEV_PORT']
-            self.ports_name2dev[name] = dev
-            self.ports_dev2name[dev] = name
-
-        ## Get the device configuration and extract the dev ports of
-        ## the PCIe and Eth CPU ports to generate identifiers for
-        ## those ports.
-        self.dev_cfg = self.t.dev_cfg.default_entry_get()
-        n = 0
-        for dev_port in self.dev_cfg['eth_cpu_port_list']:
-            ## Replace the canonical name of the port. It might not
-            ## have been registered due to the issue mentioned above
-            name = self.ports_dev2name.pop(dev_port, None)
-            if name is not None:
-                self.ports_name2dev.pop(name)
-            eth_cpu_port = f'EthCPU{n}'
-            self.ports_name2dev[eth_cpu_port] = dev_port
-            self.ports_dev2name[dev_port] = eth_cpu_port
-            logger.info(f'Registering Eth CPU port {eth_cpu_port}' +
-                        f' as device port {dev_port}')
-            n += 1
-        pcie_cpu_port = 'PCIeCPU'
-        pcie_cpu_dev_port = self.dev_cfg['pcie_cpu_port']
-        logger.info(f'Registering PCIe CPU port {pcie_cpu_port} as'
-                    + f' device port {pcie_cpu_dev_port}')
-        self.ports_name2dev[pcie_cpu_port] = pcie_cpu_dev_port
-        self.ports_dev2name[pcie_cpu_dev_port] = pcie_cpu_port
-
         ## Whenever a new configuration is pushed to the device, all
         ## tables are cleared and re-programmed, except for the
         ## interfaces to avoid links going down during
@@ -303,46 +240,8 @@ class PacketBroker:
         ## initial pseudo-configuration here that only contains the
         ## state of the ports as read from the device for
         ## bootstrapping.
-        logger.info("Detecting active ports")
-        config = Config()
-        for _port, _key in self.t.port.entry_get_iterator(None):
-            port = _port.to_dict()
-            key = _key.to_dict()
-            name = port['$PORT_NAME']
-            dev_port = key['$DEV_PORT']['value']
-            logger.info("Port {0}({1}), Enable {2}, Up {3}".format(
-                name,
-                dev_port,
-                port['$PORT_ENABLE'],
-                port['$PORT_UP']
-            ))
-            config.ports[dev_port] = {
-                'description': '',
-                'speed': port['$SPEED'],
-                'mtu': port['$RX_MTU'],
-                'fec': port['$FEC'],
-                'shutdown': not port['$PORT_ENABLE']
-            }
-        self.config = config
-
-    def _is_tf1(self):
-        return 'T10' in self.dev_cfg['sku']
-
-    def _is_tf2(self):
-        return 'T20' in self.dev_cfg['sku']
-
-    def _get_dev_port(self, port):
-        try:
-            port = self.ports_name2dev[port]
-        except:
-            raise semantic_error("invalid port {0:s}".format(port))
-        return port
-
-    def _get_port_name(self, dev_port):
-        if dev_port in self.ports_dev2name:
-            return self.ports_dev2name[dev_port]
-        else:
-            return str(dev_port)
+        self.config = Config()
+        self.config.ports.update(self.dev.detect_ports())
 
     def _msgs_clear(self):
         self.msgs = []
@@ -449,7 +348,7 @@ class PacketBroker:
                 mac = mac_pools['port']['base']
                 size = mac_pools['port']['size']
                 ## Assign MAC addresses to external ports and Eth CPU ports
-                for dev_port in self.dev_cfg['external_port_list'] + self.dev_cfg['eth_cpu_port_list']:
+                for dev_port in self.dev.cfg['external_port_list'] + self.dev.cfg['eth_cpu_port_list']:
                     config.system['port-macs'][dev_port] = mac
                     mac = inc_mac(mac)
                 if size < len(config.system['port-macs']):
@@ -471,7 +370,7 @@ class PacketBroker:
         ## translated to device ports to catch all related errors
         ## before the configuration is pushed to the hardware
         def add_port(port, port_config):
-            dev_port = self._get_dev_port(port)
+            dev_port = self.dev.get_dev_port(port)
             if dev_port in config.ports:
                 raise semantic_error("port {0:s} already defined".format(port))
             full_config = {
@@ -536,9 +435,9 @@ class PacketBroker:
             config.source_filter_d = []
 
         if 'monitor-sessions' in json.keys():
-            if self._is_tf1() and len(json['monitor-sessions']) > 1023:
+            if self.dev.is_tf1() and len(json['monitor-sessions']) > 1023:
                 raise semantic_error(f'Monitor session {id}: restricted to 1023 on Tofino1')
-            if self._is_tf2() and len(json['monitor-sessions']) > 255:
+            if self.dev.is_tf2() and len(json['monitor-sessions']) > 255:
                 raise semantic_error(f'Monitor session {id}: restricted to 255 on Tofino2')
             sessions = {}
             erspan_sessions = []
@@ -553,7 +452,7 @@ class PacketBroker:
                 session = {
                     'mirror_session': mirror_session,
                 }
-                egress_dev_port = self._get_dev_port(session_in['egress-port'])
+                egress_dev_port = self.dev.get_dev_port(session_in['egress-port'])
                 session['egress-port'] = egress_dev_port
                 encap_overhead = 0
                 if 'encapsulation' in session_in:
@@ -640,7 +539,7 @@ class PacketBroker:
                 'mirror-mode': flow_in.get('mirror-mode', 'ingress'),
                 'enable': flow_in.get('enable', True),
                 'bidir': flow_in.get('bidir', False),
-                'ingress-ports': [ self._get_dev_port(port) for port in
+                'ingress-ports': [ self.dev.get_dev_port(port) for port in
                                       sorted(flow_in.get('ingress-ports', [])) ]
             }
 
@@ -729,7 +628,7 @@ class PacketBroker:
         features = json.get('features', {})
         for feature, value in features.items():
             if feature == 'deflect-on-drop':
-                config.features['deflect-on-drop'] = int(self._get_dev_port(value))
+                config.features['deflect-on-drop'] = int(self.dev.get_dev_port(value))
 
             if feature == 'drop-non-initial-fragments' and value:
                 config.features['drop-non-initial-fragments'] = True
@@ -1035,8 +934,8 @@ class PacketBroker:
             ## represented there. Note that the PCIe CPU port never
             ## occurs here because it is not allowed in the list of
             ## configured ports.
-            if dev_port in self.ports_dev2name:
-                port_name = self.ports_dev2name[dev_port]
+            if dev_port in self.dev.ports_dev2name:
+                port_name = self.dev.ports_dev2name[dev_port]
                 if dev_port not in self.ifmibs:
                     self.ifmibs[dev_port] = mib.ifmib(self.ifmibs_dir+'/'+re.sub('/', '_', port_name))
                 self.ifmibs[dev_port].set_properties(
@@ -1082,7 +981,7 @@ class PacketBroker:
                 if member['status'] != status[port]:
                    member['status'] = status[port]
                    logger.info("egress group {0} status of member port {1} changed to {2}".
-                         format(group, self._get_port_name(port), 'up' if status[port] else 'down'))
+                         format(group, self.dev.get_port_name(port), 'up' if status[port] else 'down'))
                    update = True
             if update:
                 if not at_least_one_valid:

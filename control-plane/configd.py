@@ -58,8 +58,9 @@ logging.basicConfig(level = logging.INFO,
                     datefmt='%Y-%m-%d %H:%M:%S')
 logger = logging.getLogger('configd')
 
-## XXX: make dual-stack
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+## This creates a dual-stack socket using IPv6 mapped addresses for
+## IPv4
+s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
 s.bind((args.listen_on, args.port))
 s.listen(5)
 logger.info("Listening on {}/{} for connections".

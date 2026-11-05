@@ -52,16 +52,22 @@ def request(host, port, command, args = None):
         'command': command,
         'args': args
     }
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    logger.info("Trying {}".format(host))
-    s.connect((host, port))
-    logger.info("Connected")
-    s.send((json.dumps(req) + "\n").encode())
-    f = s.makefile()
-    line = f.readline()
-    resp = json.loads(line)
-    s.close()
-    return(resp)
+    try:
+        addrinfo = socket.getaddrinfo(host, port, type = socket.SOCK_STREAM)
+    except Exception as e:
+        logger.error(f'{host}: {e}')
+        sys.exit(2)
+    for info in addrinfo:
+        logger.info("Trying {}".format(info[4][0]))
+        s = socket.socket(info[0], info[1])
+        s.connect(info[4])
+        logger.info("Connected")
+        s.send((json.dumps(req) + "\n").encode())
+        f = s.makefile()
+        line = f.readline()
+        resp = json.loads(line)
+        s.close()
+        return(resp)
 
 parse_tree = {
     'title': 'Available commands',

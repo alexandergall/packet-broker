@@ -1,59 +1,64 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import argparse
 import sys
 import logging
 import socket
 import json
 
-def reload(args):
-    return None
-
 def show(args):
-    item = args.command_1
-    if item == 'source-filter':
-        return [ item, 'source-filter-dynamic' ]
-    return [ item ]
+    return { 'processed': args.processed }
 
-def dump(args):
-    item = args.command_1
-    return {
-        'source-filter': [ 'filter_ipv4', 'filter_ipv6' ],
-        'monitor-sessions': [ 'mirror_encap_l2', 'mirror_encap_l3', 'mirror_encap_l4' ],
-        'flow-mirror': [ 'mirror_ipv4', 'mirror_ipv6' ],
-        'ingress': [ 'ingress_tagged', 'ingress_untagged' ],
-        'mac-rewrite': [ 'ingress_src_mac_rewrite', 'ingress_dst_mac_rewrite' ],
-        'select-output': [ 'select_output' ],
-        'forward': [ 'forward'],
-        'port-groups': [ 'port_groups' ],
-        'port-groups-sel': [ 'port_groups_sel' ]
-    }[item]
-    
 def add_remove(args):
-    item = args.command_1
-    if item == 'source-filter':
-        return { item: args.prefix }
+    command = args.command_1
+    if command == 'source-filter':
+        return json.dumps(args.prefix)
+    if command == 'flow-mirror':
+        if args.command_0 == "add":
+            values = args.flow
+        else:
+            values = args.uuid
+        try:
+            data = [ json.loads(value) for value in values ]
+        except json.JSONDecodeError as e:
+            print(f"Invalid JSON encoding of input: {e}")
+            sys.exit(3)
+        return json.dumps(data)
 
 def create_subparser(prsr, spec, level = 0):
     for name, args in spec.get('arguments', {}).items():
         prsr.add_argument(name, **args)
-    if 'commands' in spec.keys():
+    if 'commands' in spec:
+        prsr.set_defaults(subcommands=True)
         sprsr = prsr.add_subparsers(help = spec.get('help', None),
                                     dest = 'command_' + str(level),
                                     description = spec.get('description', None),
                                     title = spec.get('title', None))
         for command, spec in spec['commands'].items():
             prsr = sprsr.add_parser(command, help = spec['help'])
+            prsr.set_defaults(prsr=prsr, level=level+1)
             if spec.get('func', None) is not None:
                 prsr.set_defaults(func=spec['func'])
             create_subparser(prsr, spec, level+1)
+    else:
+        prsr.set_defaults(subcommands=False)
 
-def request(host, port, command, args = None):
+def request(host, args):
     req = {
-        'command': command,
-        'args': args
+        'commands': [],
+        'args': {}
     }
+
+    for i in range(args.level):
+        command = getattr(args, 'command_'+str(i), None)
+        req['commands'].append(command)
+
+    if args.subcommands and len(req['commands']) <= args.level:
+        args.prsr.print_help(sys.stderr)
+        sys.exit(2)
+
+    req['args'] = args.func(args)
     try:
-        addrinfo = socket.getaddrinfo(host, port, type = socket.SOCK_STREAM)
+        addrinfo = socket.getaddrinfo(host, args.port, type = socket.SOCK_STREAM)
     except Exception as e:
         logger.error(f'{host}: {e}')
         sys.exit(2)
@@ -84,20 +89,26 @@ parse_tree = {
     'commands': {
         'reload': {
             'help': "Reload configuration",
-            'func': reload
+            'func': lambda args: None
         },
         'show': {
             'help': "Show running configuration",
             'func': show,
+            'arguments': {
+                '--processed': {
+                    'help': 'Include default and dynamic configuration',
+                    'action': 'store_true'
+                }
+            },
             'commands': {
+                'top-level': {
+                    'help': "Full configuration",
+                },
+                'system': {
+                    'help': "System configuration",
+                },
                 'ports': {
                     'help': "Port configurations",
-                },
-                'groups': {
-                    'help': "Port configurations",
-                },
-                'ingress': {
-                    'help': "Ingress processing",
                 },
                 'source-filter': {
                     'help': "Source filters",
@@ -115,7 +126,7 @@ parse_tree = {
         },
         'dump': {
             'help': "Dump tables from hardware",
-            'func': dump,
+            'func': lambda args: None,
             'commands': {
                 'source-filter': {
                     'help': "Source filters"
@@ -149,8 +160,17 @@ parse_tree = {
                     'help': "Source filters",
                     'arguments': {
                         'prefix': {
-                            'nargs': '*',
+                            'nargs': '+',
                             'help': "An IPv4 or IPv6 prefix"
+                        }
+                    }
+                },
+                'flow-mirror': {
+                    'help': "Flow mirror",
+                    'arguments': {
+                        'flow': {
+                            'nargs': '+',
+                            'help': "An flow mirror configuration"
                         }
                     }
                 }
@@ -164,8 +184,17 @@ parse_tree = {
                     'help': "Source filters",
                     'arguments': {
                         'prefix': {
-                            'nargs': '*',
+                            'nargs': '+',
                             'help': "An IPv4 or IPv6 prefix"
+                        }
+                    }
+                },
+                'flow-mirror': {
+                    'help': "Flow mirror",
+                    'arguments': {
+                        'uuid': {
+                            'nargs': '+',
+                            'help': "A flow mirror UUID"
                         }
                     }
                 }
@@ -179,18 +208,15 @@ logging.basicConfig(level = logging.INFO,
 logger = logging.getLogger('brokerctl')
 
 prsr = argparse.ArgumentParser(description = "Packet Broker controller")
+prsr.set_defaults(level=0, prsr=prsr)
 create_subparser(prsr, parse_tree)
-if len(sys.argv) == 1:
-    prsr.print_help(sys.stderr)
-    sys.exit(2)
 args = prsr.parse_args()
 if not args.host:
     args.host = [ 'localhost' ]
-
 result = {}
 rc = 0
 for host in args.host:
-    result[host] = request(host, args.port, args.command_0, args.func(args))
+    result[host] = request(host, args)
     if not result[host]['success']:
         rc = 1
 print(json.dumps(result, indent=2))

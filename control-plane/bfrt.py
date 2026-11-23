@@ -120,21 +120,17 @@ class Table:
 class Bfrt:
     def __init__(self, program, retries, addr = 'localhost:50052',
                  client_id = 0, device_id = 0):
-        ## Due to a bug in client.py, the num_tries parameter is currently
-        ## fixed at 5.
-        re_retries = int((retries-1)/5) + 1
-        for i in range (0, re_retries):
-            ## The "is_master" argument has been removed in SED 9.4.0
-            args = dict(client_id = client_id, num_tries=retries,
-                        device_id = device_id)
-            if "is_master" in inspect.getfullargspec(gc.ClientInterface.__init__).args:
-                args["is_master"] = True
+        ## The connection logic in ClientInterface is buggy and
+        ## doesn't work if the server is starting up while in this
+        ## call. As a workaround, we set num_retries=1 and perform the
+        ## call in a loop
+        for i in range(0, retries):
             try:
-                self.intf = gc.ClientInterface(addr, **args)
+                self.intf = gc.ClientInterface(addr, client_id = client_id,
+                                               num_tries=1,
+                                               device_id = device_id)
             except:
-                if i < re_retries - 1:
-                    continue
-                else:
+                if i == retries-1:
                     raise Exception("connection attempts exceeded")
             else:
                 break

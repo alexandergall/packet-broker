@@ -1,0 +1,161 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "http://switch.ch/schemas/packet_broker.json",
+
+    "mac-address-pool": {
+        "type": "object",
+        "required": [ "base", "size" ],
+        "properties": {
+            "base": {
+                "$ref": "#/mac-address-pattern"
+            },
+            "size": {
+                "type": "integer"
+            }
+        },
+        "additionalProperties": false
+    },
+
+    "interface-config": {
+        "type": "object",
+        "required": [ "speed", "mtu" ],
+
+        "properties": {
+            "description": {
+                "type": "string"
+            },
+
+            "speed": {
+                "type": "string",
+                "enum": [
+                    "BF_SPEED_1G",
+                    "BF_SPEED_10G",
+                    "BF_SPEED_25G",
+                    "BF_SPEED_40G",
+                    "BF_SPEED_40G_NB",
+                    "BF_SPEED_40G_NON_BREAKABLE",
+                    "BF_SPEED_50G",
+                    "BF_SPEED_50G_R1",
+                    "BF_SPEED_100G",
+                    "BF_SPEED_100G_R2",
+                    "BF_SPEED_200G",
+                    "BF_SPEED_200G_R8",
+                    "BF_SPEED_400G"
+                ]
+            },
+
+            "fec": {
+                "type": "string",
+                "enum": [
+                    "BF_FEC_TYP_NONE",
+                    "BF_FEC_TYP_FIRECODE",
+                    "BF_FEC_TYP_REED_SOLOMON",
+                    "BF_FEC_TYP_FC",
+                    "BF_FEC_TYP_RS"
+                ]
+            },
+
+            "mtu": {
+                "type": "integer",
+                "minimum": 1200,
+                "maximum": 10240
+            },
+
+            "shutdown": {
+                "type": "boolean"
+            }
+        },
+        "additionalProperties": false
+    },
+
+    "port": {
+        "type": "object",
+        "patternProperties": {
+            "^([0-9]+/[0-9]+|EthCPU[0-9])$": {
+                "type": "object",
+                "required": [ "config" ],
+
+                "properties": {
+                    "config": {
+                        "$ref": "#/interface-config"
+                    }
+                },
+                "additionalProperties": false
+            }
+        }
+    },
+
+    "port-pattern": {
+        "type": "string",
+        "pattern": "^([0-9]+/[0-9]+|EthCPU[0-9])$"
+    },
+
+    "port-pattern-with-pciecpu": {
+        "type": "string",
+        "pattern": "^([0-9]+/[0-9]+|EthCPU[0-9]|PCIeCPU)$"
+    },
+
+    "vlan": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 4095
+    },
+
+    "port-spec": {
+        "type": "object",
+        "required": [ "port" ],
+        "properties": {
+            "port": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 65535
+            },
+            "mask": {
+                "$ref": "#/hex-string-16"
+            }
+        }
+    },
+
+    "mac-address-pattern": {
+        "type": "string",
+        "pattern": "^([a-f0-9]{2}:){5}([a-f0-9]){2}$"
+    },
+
+    "mac-address-spec": {
+        "type": "object",
+        "required": [ "address" ],
+        "properties": {
+            "address": {
+                "$ref": "#/mac-address-pattern"
+            },
+            "mask": {
+                "$ref": "#/mac-address-pattern"
+            }
+        }
+    },
+
+    "mac-rewrite": {
+        "type": "object",
+        "patternProperties": {
+            "^([a-f0-9]{2}:){5}[a-f0-9]{2}$": {
+                "$ref": "#/mac-address-pattern"
+            }
+        },
+        "additionalProperties": false
+    },
+
+    "hex-string-16": {
+        "type": "string",
+        "pattern": "^0x[0-9a-fA-F]{1,4}$"
+    },
+
+    "hex-string-12": {
+        "type": "string",
+        "pattern": "^0x[0-9a-fA-F]{1,3}$"
+    },
+
+    "uuid": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    }
+}

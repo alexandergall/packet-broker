@@ -1,0 +1,116 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:switch:packet-broker",
+
+    "type": "object",
+    "required": [ "ingress", "egress" ],
+
+    "properties": {
+        "ingress": {
+            "type": "object",
+            "patternProperties": {
+                "^([0-9]+/[0-9]+|EthCPU[0-9])$": {
+                    "type": "object",
+                    "required": [ "config", "egress-group", "vlans" ],
+
+                    "properties": {
+                        "config": {
+                            "$ref": "defs.json#/interface-config"
+                        },
+
+                        "egress-group": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+
+                        "vlans": {
+                            "type": "object",
+
+                            "properties": {
+                                "push": {
+                                    "$ref": "defs.json#/vlan"
+                                },
+
+                                "accept": {
+                                    "type": "array",
+
+                                    "items": {
+                                        "type": "object",
+                                        "required": [ "vid" ],
+                                        "properties": {
+                                            "vid": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 4095
+                                            },
+                                            "mask": {
+                                                "$ref": "defs.json#/hex-string-12"
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    }
+                                },
+
+                                "rewrite": {
+                                    "type": "array",
+
+                                    "items": {
+                                        "type": "object",
+                                        "required": [ "in", "out" ],
+                                        "properties": {
+                                            "in": {
+                                                "$ref": "defs.json#/vlan"
+                                            },
+                                            "out": {
+                                                "$ref": "defs.json#/vlan"
+                                            },
+                                            "mac-rewrite": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "src": {
+                                                        "$ref": "defs.json#/mac-rewrite"
+                                                    },
+                                                    "dst": {
+                                                        "$ref": "defs.json#/mac-rewrite"
+                                                    }
+                                                },
+                                                "additionalProperties": false
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
+
+        "egress": {
+            "type": "array",
+
+            "items": {
+                "type": "object",
+                "required": [ "group-id", "members" ],
+
+                "properties": {
+                    "group-id": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+
+                    "members": {
+                        "$ref": "defs.json#/port"
+                    }
+                },
+                "additionalProperties": false
+            }
+        },
+
+        "other": {
+            "$ref": "defs.json#/port"
+        }
+    }
+}

@@ -1,0 +1,76 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:switch:packet-broker",
+
+    "type": "object",
+
+    "patternProperties": {
+        "^[a-zA-z0-9_-]+$": {
+            "type": "object",
+            "required": [ "egress-port" ],
+
+            "properties": {
+                "encapsulation": {
+                    "type": "object",
+                    "properties": {
+                        "erspan": {
+                            "type": "object",
+                            "required": [ "session-id", "ethernet", "ip" ],
+
+                            "properties": {
+                                "session-id": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 1023
+                                },
+                                "ethernet": {
+                                    "type": "object",
+                                    "required": [ "dst" ],
+                                    "properties": {
+                                        "dst": {
+                                            "$ref": "defs.json#/mac-address-pattern"
+                                        },
+                                        "vlan": {
+                                            "$ref": "defs.json#/vlan"
+                                        }
+                                    },
+                                    "additionalProperties": false
+                                },
+                                "ip": {
+                                    "type": "object",
+                                    "required": [ "dst" ],
+                                    "properties": {
+                                        "dst": {
+                                            "type": "string"
+                                        },
+                                        "ttl": {
+                                            "type": "integer",
+                                            "minimum": 1,
+                                            "maximum": 255
+                                        }
+                                    },
+                                    "additionalProperties": false
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    },
+                    "oneOf": [
+                        { "required": [ "erspan" ] }
+                    ]
+                },
+                "egress-port": {
+                    "$ref": "defs.json#/port-pattern-with-pciecpu"
+                },
+                "max-packet-length": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 16384
+                }
+            },
+            "additionalProperties": false
+        },
+        "additionalProperties": false
+    },
+    "additionalProperties": false
+}

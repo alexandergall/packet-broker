@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:switch:packet-broker",
+
+    "type": "array",
+    "items": {
+        "type": "object",
+        "required": [ "uuid" ],
+
+        "properties": {
+            "uuid": {
+                "$ref": "defs.json#/uuid"
+            }
+        },
+        "additionalProperties": true
+    }
+}

@@ -1,0 +1,38 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:switch:packet-broker",
+
+    "type": "object",
+
+    "properties": {
+        "mac-address-pools": {
+            "type": "object",
+            "required": [ "port", "system" ],
+
+            "properties": {
+                "port": {
+                    "$ref": "defs.json#/mac-address-pool"
+                },
+                "system": {
+                    "$ref": "defs.json#/mac-address-pool"
+                }
+            },
+            "additionalProperties": false
+        },
+        "ip": {
+            "type": "object",
+            "required": [ "addressv4", "addressv6" ],
+
+            "properties":  {
+                "addressv4": {
+                    "type": "string"
+                },
+                "addressv6": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "additionalProperties": false
+}

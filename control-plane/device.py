@@ -1,3 +1,6 @@
+import os
+import re
+import mib
 import logging
 
 ### Internal tables
@@ -23,11 +26,19 @@ tables = {
 logger = logging.getLogger(__name__)
 
 class Device:
-    def __init__(self, bfrt):
+    def __init__(self, bfrt, args):
         self.bfrt = bfrt
+        self.args = args
 
         for name, loc in tables.items():
             bfrt.add_table(name, loc)
+
+        ## Remove all shared memory segments to get rid of left-overs
+        ## from previous runs
+        for root, dirs, files in os.walk(args.ifmibs_dir):
+            for file in files:
+                os.unlink(args.ifmibs_dir+'/'+file)
+        self.ifmibs = {}
 
         ## Build the mapping of front-panel port names to device port
         ## numbers and vice versa.
@@ -98,6 +109,20 @@ class Device:
                 'shutdown': not port['$PORT_ENABLE']
             }
         return ports
+
+    def update_mib_for_port(self, dev_port, port_name, properties):
+        if dev_port not in self.ifmibs:
+            self.ifmibs[dev_port] = mib.ifmib(self.args.ifmibs_dir+'/'+re.sub('/', '_', port_name))
+        self.ifmibs[dev_port].set_properties(properties)
+
+    def delete_mib_for_port(self, dev_port):
+        ## It is possible that a port exists but was not added by
+        ## us (e.g. port added via bfshell, Tofino model starts up
+        ## with all ports active). In that case, the port is not
+        ## registered in the ifmib.
+        if dev_port in self.ifmibs:
+            self.ifmibs[dev_port].delete()
+            self.ifmibs.pop(dev_port, None)
 
     def is_tf1(self):
         return 'T10' in self.cfg['sku']

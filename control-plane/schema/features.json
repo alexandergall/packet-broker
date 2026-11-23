@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:switch:packet-broker",
+
+    "type": "object",
+
+    "properties": {
+        "deflect-on-drop": {
+            "$ref": "defs.json#/port-pattern-with-pciecpu"
+        },
+
+        "drop-non-initial-fragments": {
+            "type": "boolean"
+        },
+
+        "exclude-ports-from-hash": {
+            "type": "boolean"
+        },
+
+        "drop-non-ip": {
+            "type": "boolean"
+        }
+    },
+    "additionalProperties": false
+}

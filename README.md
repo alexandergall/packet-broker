@@ -1,11 +1,27 @@
 # packet-broker
 
 A P4 program that provides "packet broker" functionality on a
-Tofino-based system.  Access to the Barefoot SDE is required for
-compiling and running the P4 program contained in this repository.
-The SDE is provided by Intel (who acquired Barefoot Networks in 2019).
-Currently, this requires going through an application process and
-entering an NDA with Intel.
+Tofino-based system.  Access to the Intel/Barefoot SDE is required for
+compiling and running the P4 program contained in this
+repository.
+
+As of the beginning of 2026, it is no longer possible to obtain the
+original SDE (at least not in a legal manner) after Intel has shut
+down the Tofino project for good. Most of the SDE was released into
+the public domain as the [Open P4Studio project on
+Github](https://github.com/p4lang/open-p4studio), but it only supports
+the Tofino software emulation (aka the "Tofino model"). If you are in
+posession of the orginal SDE version 9.13.4 and the corresponding BSP,
+you can still re-create the full SDE from Open P4Studio. The author's
+[Nix packaging for Open
+P4Studio](https://github.com/alexandergall/bf-sde-nixpkgs/tree/open-p4studio)
+provides a system that makes the full SDE available on any Linux
+system (provided that the user already posesses the full original SDE
+and BSP).
+
+It is recommended to use the [Nix
+packaging](https://github.com/alexandergall/packet-broker-nixpkgs) for
+this repository, which is based on the full Open P4Studio SDE.
 
 Contents
 
@@ -198,7 +214,7 @@ the ASIC, e.g. to show the status of ports or information about QSFP
 plugins.
 
 The P4 compiler as well as the `bf_switchd` and `bfshell` programs are
-part of the Barefoot SDE and are not provided by this repository.
+part of the SDE and are not provided by this repository.
 
 ### Control Plane
 
@@ -222,11 +238,16 @@ The control plane of the packet broker consists of a daemon called
 
 ### Data Plane
 
-To compile `packet_broker.p4`, download, build and install the
-Barefoot SDE according to the documentation.  The program has been
-tested with versions 9.1.1, 9.2.0 and 9.3.0 of the SDE. Unfortunately,
-it is not possible to publish any details about this process here due
-to the NDA.
+To compile `packet_broker.p4`, download, build and install the SDE
+according to the documentation.  The current version of the program
+has been tested with Open P4Studio based on the original SDE version
+9.13.4. It is highly recommended to use the [development
+shell](https://github.com/alexandergall/bf-sde-nixpkgs/tree/open-p4studio#p4-program-development-with-the-sde-shell)
+from the [Nix-based
+packaging](https://github.com/alexandergall/bf-sde-nixpkgs/tree/open-p4studio)
+for the SDE, or, even better, the dedicated [Nix packaging for the
+packet broker](https://github.com/alexandergall/packet-broker-nixpkgs)
+for a "one-click" deployment on hardware platforms using ONIE.
 
 In the remainder of this documentation it is assumed that the
 environment variables `SDE` and `SDE_INSTALL` are set correctly
@@ -242,8 +263,7 @@ modules in the `control-plane` sub-directory of this repository. A
 standard `setup.py` file is supplied for installation with
 `setuptools`.  Dependencies on non-standard modules are declared in
 `setup.py` but there is also an implicit dependence on Python modules
-supplied by the SDE, which is covered below.  This dependency
-currently forces the control plane to use Python version 2.7.
+supplied by the SDE, which is covered below.
 
 Assuming that `pip` and `virtualenv` are available, the following
 procedure should successfully install the control plane in a Python
@@ -282,7 +302,7 @@ modules from the SDE, which can be arranged with
 
 ```
 $ source /usr/local/packet-broker/bin/activate
-$ export PYTHONPATH=$SDE_INSTALL/lib/python2.7/site-packages/tofino
+$ export PYTHONPATH=$SDE_INSTALL/lib/python3.11/site-packages/tofino
 $ /usr/local/packet-broker/bin/configd.py
 ```
 
@@ -307,7 +327,7 @@ The following options are available
    * `--connect-retries <number>`
 
      The number of retries the gRPC client attempts to connect to the
-     server at one-second intervals, default 30
+     server at one-second intervals, default 60
 
    * `--listen-on <address>`
 
@@ -353,9 +373,7 @@ The packet broker is configured from a file called `config.json`
 located in the directory specified with the `--config-dir` option of
 `configd.py`.  By default, this is `/etc/packet-broker/config.json`.
 The file must contain a valid JSON expression which validates against
-the schema provided in `control-plane/schema.json`.  The schema file
-itself must be present in the configuration directory,
-e.g. `/etc/packet-broker/schema.json`.
+the schemas provided in `control-plane/schema/`.
 
 The overall structure is the following
 
@@ -502,33 +520,33 @@ section.
      For Tofino1, the bit rate at which to run the SerDes lane, must be
      one of
 
-       * `BF_SPEED_1G`
-       * `BF_SPEED_10G`
-       * `BF_SPEED_25G`
-       * `BF_SPEED_40G`
-       * `BF_SPEED_40G_NB`
-       * `BF_SPEED_40G_NON_BREAKABLE`
-       * `BF_SPEED_50G`
-       * `BF_SPEED_100G`
+        * `BF_SPEED_1G`
+        * `BF_SPEED_10G`
+        * `BF_SPEED_25G`
+        * `BF_SPEED_40G`
+        * `BF_SPEED_40G_NB`
+        * `BF_SPEED_40G_NON_BREAKABLE`
+        * `BF_SPEED_50G`
+        * `BF_SPEED_100G`
 
-    Note that certain restrictions exist as to which lanes these
-    setting can be applied to.  The most important restrictions are
+     Note that certain restrictions exist as to which lanes these
+     setting can be applied to.  The most important restrictions are
 
-       * `BF_SPEED_40G` and `BF_SPEED_100G` can only be applied to lane 0
-       * `BF_SPEED_50G` can only be applied to lanes 0 and 2
+        * `BF_SPEED_40G` and `BF_SPEED_100G` can only be applied to lane 0
+        * `BF_SPEED_50G` can only be applied to lanes 0 and 2
 
-    In addition to these speeds, Tofino2 supports the following
+     In addition to these speeds, Tofino2 supports the following
 
-       * 'BF_SPEED_200G'
-       * 'BF_SPEED_400G'
-       * 'BF_SPEED_50G_R1'
-       * 'BF_SPEED_100G_R2'
-       * 'BF_SPEED_200G_R8'
+        * `BF_SPEED_200G`
+        * `BF_SPEED_400G`
+        * `BF_SPEED_50G_R1`
+        * `BF_SPEED_100G_R2`
+        * `BF_SPEED_200G_R8`
 
-    The identifiers ending with `R<n>` select variants of a speed
-    using different numbers of lanes as the standard setting for the
-    same speed. E.g. `BF_SPEED_50G` uses two lanes of 25G while
-    `BF_SPEED_50G_R1` uses a single lane.
+     The identifiers ending with `R<n>` select variants of a speed
+     using different numbers of lanes as the standard setting for the
+     same speed. E.g. `BF_SPEED_50G` uses two lanes of 25G while
+     `BF_SPEED_50G_R1` uses a single lane.
 
    * `fec`, **optional**, default is `BF_FEC_TYP_NONE`
 
@@ -598,15 +616,14 @@ The `accpet` section must contain a list of objects of the form
 ```
 
 The `vid` field is mandatory. The `mask` field is optional and must be
-an integer between 0 and 4095 (`0xFFF`) with default value 4095. Only
-those bits of `vid` that are set in the mask are considered for a
-match in the table (ternary match). I.e. the default mask performs an
+a string representing a 3-byte hexadecimal value with prefix "0x",
+e.g. `"0x0FF"` for ternary matching. The default is "0xFFF", i.e. an
 exact match on the VLAN tag. The rule
 
 ```
 {
   "vid": 0,
-  "mask": 0
+  "mask": "0x0"
 }
 ```
 
@@ -656,7 +673,7 @@ Consider the following example
   "accept": [
       { "vid": 100 },
       { "vid": 0,
-        "mask": 3840
+        "mask": "0xf00"
       }
   "rewrite": [
       { "in": 600,
@@ -739,8 +756,19 @@ and 255 on Tofino2.
 Each monitor session can be associated with any number of flow mirrors
 (up to the number of supported flow rules).
 
+The `egress-port` is mandatory and must be a [named port](#namedPorts)
+or `PCIeCPU` to select the PCIe CPU port.
+
+The `max-packet-length` is optional and defaults to 16384. It
+specifies the maximum number of bytes to which the mirrored packet
+will be truncated. This value is automatically adjusted to the MTU of
+the egress interface, taking into account the overhead of the
+encapsulation headers.
+
 The `encapsulation` section is optional. If omitted, mirrored packets
 are emitted without any encapsulation.
+
+#### ERSPAN encapsulation
 
 Currently, the only supported encapsulation is ERSPAN Type II as
 specified in an [informational Internet
@@ -770,15 +798,6 @@ IPv6 address. The source address is the adress of matching address
 family specified in the `ip` subsection of the `system` section. The
 `ttl` field is optional and defaults to 64.
 
-The `egress-port` is mandatory and must be a [named port](#namedPorts)
-or `PCIeCPU` to select the PCIe CPU port.
-
-The `max-packet-length` is optional and defaults to 16384. It
-specifies the maximum number of bytes to which the mirrored packet
-will be truncated. This value is automatically adjusted to the MTU of
-the egress interface, taking into account the overhead of the
-encapsulation headers.
-
 ### Source Filter
 
 The `source-filter` section is optional. It contains a list of strings
@@ -796,7 +815,7 @@ received on any of the ingress ports.  All packets whose source IPv4
 or IPv6 address match any of the prefixes specified in this list are
 dropped.
 
-### Flow Mirror
+### <a name="flow-mirror"></a>Flow Mirror
 
 The `flow-mirror` section is optional.  It contains a list of flow
 patterns for the purpose of packet mirroring. Each flow is associated
@@ -952,8 +971,8 @@ neither `src-port` nor `dst-port` is present, the default is to match
 any protocol. Otherwise, `protocols` must specify a subset of the list
 of protocols that support the notion of a "port", currently
 
-   * 6 (TCP)
-   * 17 (UDP)
+   * 6   (TCP)
+   * 17  (UDP)
 
 Any other value will result in a semantic error. If `protocols` is
 omitted but either of `src-port` or `dst-port` is present, it defaults
@@ -1077,11 +1096,10 @@ Available commands:
 default. It uses a simple JSON encoding to submit a command to the
 daemon and receive a completion message or error code from the daemon.
 By default, `brokerctl` connects to a daemon listening on `127.0.0.1`
-(IPv6 is currently not supported). A different address can be supplied
-with the `--host` option to communicate with a daemon running on a
-remote host.  There are currently no security mechanisms in place to
-secure the connection, thus it is recommended to use a firewall or ACL
-for protection.
+or `::1`. A different address can be supplied with the `--host` option
+to communicate with a daemon running on a remote host.  There are
+currently no security mechanisms in place to secure the connection,
+thus it is recommended to use a firewall or ACL for protection.
 
 A command can be sent to multiple daemons simultaneously by specifying
 multiple `--host` options.  Hosts can either be specified as literal
@@ -1141,12 +1159,12 @@ $ brokerctl add source-filter "foo"
 INFO:brokerctl: Trying 127.0.0.1
 INFO:brokerctl: Connected
 {
-  "127.0.0.1": {
+  "localhost": {
     "success": false,
     "msgs": [
       {
-        "msg": "Command 'add' failed: u'foo' does not appear to be an IPv4 or IPv6 network",
-        "level": 40
+        "level": 40,
+        "msg": "Command 'add' failed: Semantic error: Source filter: 'foo' does not appear to be an IPv4 or IPv6 network"
       }
     ],
     "result": null
@@ -1175,7 +1193,23 @@ Any syntactic or semantic error in the configuration will result in a
 failure (`success` set to `false`) and a message which provides
 details about the error (unfortunately, the Python JSON modules tend
 to produce hard to understand messages in case of syntax errors and
-failures to validate the configuration against the schema).
+failures to validate the configuration against the schema). In this
+case, the new configuration is rejected entirely and no changes are
+applied.
+
+If the new configuration passes all syntactic and semantic checks, it
+is applied by re-programming all P4 tables. No error is expected to
+occur at this stage. If an error occurs anyway, it probably points to
+a bug in the verification logic that needs to be fixed. In this case,
+a message is logged and the system attempts to preform a rollback to
+the configuration that was active prior to the reload request. If this
+is successful, the system is in a well-defined state but the running
+configuration has diverged from the stored configuration.
+
+In case an error occurs during such a rollback operation, all hope is
+lost and the system is in an undefined state. This condition is logged
+as well. The system continues operation nevertheless but an effort
+should be made to bring it back to a defined state.
 
 ### `show`
 
@@ -1183,25 +1217,69 @@ The `show` command is used to display various components of the
 currently active configuration. Its usage is
 
 ```
-usage: brokerctl show [-h] {ports,groups,ingress,source-filter,monitor-sessions,flow-mirror,features} ...
+usage: brokerctl show [-h] [--processed] {top-level,system,ports,source-filter,monitor-sessions,flow-mirror,features} ...
 
 options:
   -h, --help            show this help message and exit
+  --processed           Include default and dynamic configuration
 
-  {ports,groups,ingress,source-filter,monitor-sessions,flow-mirror,features}
+  {top-level,system,ports,source-filter,monitor-sessions,flow-mirror,features}
                         Show running configuration
+    top-level           Full configuration
+    system              System configuration
     ports               Port configurations
-    groups              Port configurations
-    ingress             Ingress processing
     source-filter       Source filters
     monitor-sessions    Monitor sessions
     flow-mirror         Flow mirror rules
     features            Features
+
 ```
 
 The output is generated from the daemon's in-memory copy of the
-configuration file. The output for `source-filter` includes the list
-of filters that have been added with the `add` command as well.
+configuration file. By default the output reflects the configuration
+as present in the configuration file exactly. If the `--processed`
+option is given, the configuration contains default values added
+during parsing as well as dynamic items added with `brokerctl
+add`. For example, consider a `config.json` that doesn't contain any
+source filters. Then, after executing `brokerctl add source-filter
+"1.2.3.4"`, the processed version of the configuration will show it,
+e.g.
+
+```
+$ brokerctl show --processed source-filter
+INFO:brokerctl: Trying ::1
+INFO:brokerctl: Connected
+{
+  "localhost": {
+    "success": true,
+    "msgs": [],
+    "result": {
+      "source-filter": [
+        "1.2.3.4/32"
+      ]
+    }
+  }
+}
+
+```
+
+while the unprocessed configuration won't
+
+```
+$ brokerctl show source-filter
+INFO:brokerctl: Trying ::1
+INFO:brokerctl: Connected
+{
+  "localhost": {
+    "success": true,
+    "msgs": [],
+    "result": {
+      "source-filter": []
+    }
+  }
+}
+
+```
 
 ### `add`
 
@@ -1209,67 +1287,91 @@ The `add` command is used to modify certain tables in a dynamic manner
 (i.e. without modifying the configuration file). Its usage is given by
 
 ```
+$ brokerctl add --help
+usage: brokerctl add [-h] {source-filter,flow-mirror} ...
 
-optional arguments:
-  -h, --help       show this help message and exit
+options:
+  -h, --help            show this help message and exit
 
 Available items to add:
-  {source-filter}  Add dynamic table entries
-    source-filter  Source filters
-```
-
-Currently, only source filters can be configured dynamically.  The
-`source-filter` sub-command takes an IPv4 or IPv6 prefix as its only
-argument, e.g.
+  {source-filter,flow-mirror}
+                        Add dynamic table entries
+    source-filter       Source filters
+    flow-mirror         Flow mirror
 
 ```
-$ brokerctl add 192.168.0.0/24
-INFO:brokerctl: Trying localhost
-INFO:brokerctl: Connected
-{
-  "localhost": {
-    "success": true,
-    "msgs": [
-      {
-        "msg": "Added source filter 192.168.0.0/24",
-        "level": 20
-      }
-    ],
-    "result": null
-  }
-}
-```
 
-Source filters added this way are persistent across restarts of
-`configd.py` by writing them to the file `source_filter_dynamic`
-located in the configuration directory, e.g.
+Any configurations added in this manner are not persistent across
+restarts of `configd`.
+
+#### `source-filter`
+
+The `source-filter` subcommand takes one or more IPv4 or IPv6 prefixes
+in standard CIDR notation, e.g.
 
 ```
-$ cat /etc/packet-broker/source_filter_dynamic
-## Automatically generated file. DO NOT EDIT.
-192.168.0.0/24
-$
+$ brokerctl add source-filter 1.2.3.0/24 2001:db8::/48
 ```
 
-Filters added in this manner are displayed by `brokerctl show
-source-filter` in a separate table called `source-filter-dynamic`,
-e.g.
+The prefixes are prepended to the list of statically configured source
+filters.
+
+#### `flow-mirror`
+
+The `flow-mirror` subcommand takes one or more [flow mirror
+configurations](#flow-mirror) with the additional requirement that the
+object must have a property named `uuid` with the format defined in
+[RFC9562, Section 4](https://www.rfc-editor.org/info/rfc9562/). This
+property is used as a handle to remove an entry with the `brokerctl
+remove` command. Example:
 
 ```
-$ brokerctl show source-filter
-INFO:brokerctl: Trying localhost
+$ control-plane/brokerctl add flow-mirror '{ "uuid": "9490ff5f-e756-11f1-b131-b8aeedeb210e", "monitor-session": "erspan1", "match": { "ipv4": {} } }'
+INFO:brokerctl: Trying ::1
 INFO:brokerctl: Connected
 {
   "localhost": {
     "success": true,
     "msgs": [],
-    "result": {
-      "source-filter": [],
-      "source-filter-dynamic": []
+    "result": null
+  }
+}
+
+```
+
+The flow mirror rule then appears in the processed version of the `flow-mirror` configuration.
+
+```
+$ brokerctl show --proc flow-mirror | jq '.localhost.result."flow-mirror"[] | select(.uuid == "9490ff5f-e756-11f1-b131-b8aeedeb210e")'
+INFO:brokerctl: Trying ::1
+INFO:brokerctl: Connected
+{
+  "uuid": "9490ff5f-e756-11f1-b131-b8aeedeb210e",
+  "monitor-session": "erspan1",
+  "match": {
+    "ipv4": {
+      "src": "0.0.0.0/0",
+      "dst": "0.0.0.0/0",
+      "protocols": [],
+      "src-port": {
+        "port": 0,
+        "mask": "0x0"
+      },
+      "dst-port": {
+        "port": 0,
+        "mask": "0x0"
+      }
     }
   }
 }
+
 ```
+
+Dynamic flow mirror rules are prepended to the list of existing rules,
+i.e. they will take precedence over static flow mirror rules in case
+the matching conditions overlap. Note that the rules themselves must
+still be unique, irespective of the UUID, i.e. adding the the same
+rule with a different UUID will raise an error.
 
 ### `remove`
 
@@ -1277,16 +1379,23 @@ The `remove` command removes items that have previously been added
 with the `add` command. Its usage is
 
 ```
-usage: brokerctl remove [-h] {source-filter} ...
+$ control-plane/brokerctl remove --help
+usage: brokerctl remove [-h] {source-filter,flow-mirror} ...
 
-optional arguments:
-  -h, --help       show this help message and exit
+options:
+  -h, --help            show this help message and exit
 
-  {source-filter}  Remove dynamic table entries
-    source-filter  Source filters
+  {source-filter,flow-mirror}
+                        Remove dynamic table entries
+    source-filter       Source filters
+    flow-mirror         Flow mirror
+
 ```
 
-For example
+#### `source-filter`
+
+The `remove source-filter` command takes one or more prefixes and
+removes them from the list of dynamic source filters, e.g.
 
 ```
 $ brokerctl remove source-filter 192.168.0.0/24
@@ -1295,16 +1404,44 @@ INFO:brokerctl: Connected
 {
   "localhost": {
     "success": true,
-    "msgs": [
-      {
-        "msg": "Removed source filter 192.168.0.0/24",
-        "level": 20
-      }
-    ],
+    "msgs": [],
     "result": null
   }
 }
 ```
+
+If any of the given prefixes is not a valid IPv4 or IPv6 prefix or if
+any of them do not exist in the current list of dynamic source
+filters, all prefixes are ignored and no changes are applied.
+
+#### `flow-mirror`
+
+The `remove flow-mirror` command takes one or more JSON objects that
+must contain a property named `uuid` with the same format as for the
+`add` command.
+
+```
+$ brokerctl remove flow-mirror '{ "uuid": "9490ff5f-e756-11f1-b131-b8aeedeb210e" }'
+INFO:brokerctl: Trying ::1
+INFO:brokerctl: Connected
+{
+  "localhost": {
+    "success": true,
+    "msgs": [],
+    "result": null
+  }
+}
+
+```
+
+The objects may contain additional properties apart from `uuid`, all
+of which will be ignored. This is useful because it allows the user to
+use the same command line for removing a flow mirror rule as for
+adding it simply by replacing the `add` subcommand by `remove`.
+
+If any of the objects is malformed or one or more of the UUIDs are not
+part of the current set of dynamic flow mirrors, all objects are
+ignored and no changes are applied.
 
 ### `dump`
 

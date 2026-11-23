@@ -7,7 +7,8 @@ import time
 import logging
 import socket, select
 import json
-import bfrt, packet_broker
+from bfrt import Bfrt
+from packet_broker import PacketBroker
 
 class JSONEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -33,8 +34,8 @@ parser.add_argument('--stats-update-interval', help=
                     type=int, required=False, default=5)
 parser.add_argument('--connect-retries', help=
                     """The number of retries the gRPC client attempts
-                    to connect to the server at one-second intervals""",
-                    type=int, required=False, default=30)
+                    to connect to the server at one-second intervals.""",
+                    type=int, required=False, default=60)
 parser.add_argument('--listen-on', help=
                     """The addresses to listen on for communication with
                     the brokerctl command""",
@@ -46,12 +47,8 @@ parser.add_argument('--port', help=
 args = parser.parse_args()
 
 ## Make outputs unbuffered for logging purposes
-if sys.version_info < (3, 0):
-    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
-    sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 0)
-else:
-    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
-    sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', buffering=1)
+sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
+sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', buffering=1)
 
 logging.basicConfig(level = logging.INFO,
                     format='%(asctime)s.%(msecs)03d %(levelname)s:%(name)s: %(message)s',
@@ -67,8 +64,12 @@ logger.info("Listening on {}/{} for connections".
             format(args.listen_on if args.listen_on else 'any',
                    str(args.port)))
 
-bfrt = bfrt.Bfrt("packet_broker", retries = args.connect_retries)
-broker = packet_broker.PacketBroker(bfrt, args.config_dir, args.ifmibs_dir)
+try:
+    bfrt = Bfrt("packet_broker", retries = args.connect_retries)
+except Exception as e:
+    logger.error(f"Couldn't connect to Bfrt server: {e}")
+    sys.exit(1)
+broker = PacketBroker(args, bfrt)
 
 def tear_down_and_exit(rc):
     ## The method has been renamed in SDE 9.4.0
@@ -78,7 +79,7 @@ def tear_down_and_exit(rc):
         bfrt.intf.tear_down_stream()
     sys.exit(rc)
 
-if not broker.handle_request(('self', 0), { 'command': 'reload'})['success']:
+if not broker.handle_request(('self', 0), { 'commands': ['reload']})['success']:
     tear_down_and_exit(1)
 
 signals = dict((getattr(signal, n), n) \

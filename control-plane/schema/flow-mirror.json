@@ -1,0 +1,100 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:switch:packet-broker",
+
+    "$defs": {
+        "ip-flow-spec": {
+            "type": "object",
+            "properties": {
+                "src": {
+                    "type": "string"
+                },
+                "dst": {
+                    "type": "string"
+                },
+                "protocols": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer",
+                        "min": 0,
+                        "max": 255
+                    }
+                },
+                "src-port": {
+                    "$ref": "defs.json#/port-spec"
+                },
+                "dst-port": {
+                    "$ref": "defs.json#/port-spec"
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+
+    "type": "array",
+    "items": {
+        "type": "object",
+        "required": [ "monitor-session", "match" ],
+
+        "properties": {
+            "uuid": {
+                "$ref": "defs.json#/uuid"
+            },
+            "monitor-session": {
+                "type": "string",
+                "pattern": "^[a-zA-z0-9_-]+$"
+            },
+            "ingress-ports": {
+                "type": "array",
+
+                "items": {
+                    "$ref": "defs.json#/port-pattern"
+                }
+            },
+            "mirror-mode": {
+                "type": "string",
+                "enum": [
+                    "ingress",
+                    "egress"
+                ]
+            },
+            "bidir": {
+                "type": "boolean"
+            },
+            "enable": {
+                "type": "boolean"
+            },
+            "match": {
+                "type": "object",
+                "oneOf": [
+                    { "required": [ "ethernet" ] },
+                    { "required": [ "ipv4" ] },
+                    { "required": [ "ipv6" ] }
+                ],
+                "properties": {
+                    "ethernet": {
+                        "type": "object",
+                        "properties": {
+                            "src": {
+                                "$ref": "defs.json#/mac-address-spec"
+                            },
+                            "dst": {
+                                "$ref": "defs.json#/mac-address-spec"
+                            },
+                            "type": {
+                                "$ref": "defs.json#/hex-string-16"
+                            }
+                        }
+                    },
+                    "ipv4": {
+                        "$ref": "#/$defs/ip-flow-spec"
+                    },
+                    "ipv6": {
+                        "$ref": "#/$defs/ip-flow-spec"
+                    }
+                },
+                "additionalProperties": false
+            }
+        }
+    }
+}

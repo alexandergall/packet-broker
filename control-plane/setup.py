@@ -5,7 +5,8 @@ setuptools.setup(
     name="packet-broker-configd",
     version="0.0.1",
     scripts = [ "configd.py", "brokerctl" ],
-    py_modules = [ "packet_broker",
+    py_modules = [ "packet_broker", "configuration",
+                   "state", "device", "program_tables",
                    "bfrt", "mib" ],
     install_requires = [
         "jsonschema"

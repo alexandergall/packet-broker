@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "urn:switch:packet-broker",
+
+    "type": "object",
+    "required": [ "ports" ],
+
+    "properties": {
+        "system": {
+            "type": "object"
+        },
+        "ports": {
+            "type": "object"
+        },
+        "source-filter": {
+            "type": "array"
+        },
+        "monitor-sessions": {
+            "type": "object"
+        },
+        "flow-mirror": {
+            "type": "array"
+        },
+        "features": {
+            "type": "object"
+        }
+    },
+    "additionalProperties": false
+}

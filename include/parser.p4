@@ -75,6 +75,8 @@ parser ig_prs(
         transition select(hdr.ipv4.frag_offset, hdr.ipv4.protocol) {
             ( 0, ip_proto_t.TCP  ) : prs_l4;
             ( 0, ip_proto_t.UDP  ) : prs_l4;
+            ( 0, ip_proto_t.DCCP  ): prs_l4;
+            ( 0, ip_proto_t.SCTP  ): prs_l4;
             ( 0, _ )               : accept;
             default: non_first_fragment;
         }

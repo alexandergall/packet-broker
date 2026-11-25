@@ -18,8 +18,10 @@ struct l4_lookup_t {
 enum bit<8>  ip_proto_t {
     TCP       = 6,
     UDP       = 17,
+    DCCP      = 33,
     IPV6_FRAG = 44,
-    GRE       = 47
+    GRE       = 47,
+    SCTP      = 132
 }
 
 enum bit<16> ethertype_t {

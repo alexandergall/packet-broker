@@ -15,9 +15,8 @@ logger = logging.getLogger(__name__)
 protocols_with_ports = [
     6,   # TCP
     17,  # UDP
-    ## Requires support in the data plane, TBD
-    #33,  # DCCP
-    #132, # SCTP
+    33,  # DCCP
+    132, # SCTP
 ]
 
 class semantic_error(Exception):

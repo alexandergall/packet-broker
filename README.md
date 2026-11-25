@@ -46,8 +46,8 @@ IPv6 packet (Ethertype `0x0800` and `0x86dd`, respectively), the basic
 flow signature is composed of the source and destination IPv4/IPv6
 addresses as well as the protocol identifier (the _IP protocol_ and
 _next-header_ fields for IPv4 and IPv6, respectively).  If the
-protocol is UDP or TCP, the source and destination ports are part of
-the flow as well.
+protocol is UDP, TCP, DCCP or SCTP, the source and destination ports
+are part of the flow as well.
 
 For non IPv4/IPv6 packets, the flow signature is composed of the
 Ethernet source and destination addresses as well as the Ethertype
@@ -363,7 +363,7 @@ summarize:
    * Only fragmentation headers are recognized and parsed for IPv6 and
      only if they are the first extension header after the base
      header. The presence of any other extension headers results in
-     TCP/UDP ports to not be available for hash calculations when
+     TCP/UDP/DCCP/SCTP ports to not be available for hash calculations when
      forwarding packets to a group of egress ports.
    * Non-initial fragments are recognized for IPv4 and IPv6.
 
@@ -973,6 +973,8 @@ of protocols that support the notion of a "port", currently
 
    * 6   (TCP)
    * 17  (UDP)
+   * 33  (DCCP)
+   * 132 (SCTP)
 
 Any other value will result in a semantic error. If `protocols` is
 omitted but either of `src-port` or `dst-port` is present, it defaults
@@ -1052,12 +1054,13 @@ holds
 
 The default is to not drop non-initial fragments.
 
-If the `exclude-ports-from-hash` feature is enabled, the TCP/UDP ports
-are ignored when calculating the flow-based hash for IPv4 and IPv6
-packets.  This is useful if `drop-non-initial-fragments` is disabled
-and it is desired that non-initial fragments are mapped to the same
-egress port as the initial fragments. The default is to include the
-ports in the hash calculation.
+If the `exclude-ports-from-hash` feature is enabled, the
+TCP/UDP/DCCP/SCTP ports are ignored when calculating the flow-based
+hash for IPv4 and IPv6 packets.  This is useful if
+`drop-non-initial-fragments` is disabled and it is desired that
+non-initial fragments are mapped to the same egress port as the
+initial fragments. The default is to include the ports in the hash
+calculation.
 
 If the `drop-non-ip` feature is enabled, all untagged or single-tagged
 packets whose Ethertype field is not equal to either 0x0800 (IPv4) or

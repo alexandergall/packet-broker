@@ -75,6 +75,93 @@ class State:
               { 'name': '$ACTION_MEMBER_STATUS',
                 'bool_arr_val': status } ])
 
+    def apply_source_filter(self, _):
+        t = self.t
+
+        t.filter_ipv4.clear()
+        t.filter_ipv6.clear()
+        for prefix in self.source_filter:
+            if prefix.version == 4:
+                tbl = t.filter_ipv4
+            else:
+                tbl = t.filter_ipv6
+            tbl.entry_add(
+                [ { 'name': 'src_addr', 'value': prefix.network_address.exploded,
+                    'prefix_len': prefix.prefixlen } ],
+                'act_drop', [])
+
+    def apply_flow_mirror(self, _):
+        t = self.t
+
+        t.mirror_ipv4.clear()
+        t.mirror_ipv6.clear()
+        t.mirror_non_ip.clear()
+        for flow in self.flow_mirror:
+            if not flow['enable']:
+                continue
+            mirror_session = self.monitor_sessions[flow['monitor-session']]['mirror_session']
+            ports = flow['ingress-ports']
+            port_mask = 0x1ff;
+            if len(ports) == 0:
+                ports = [ 0 ]
+                port_mask = 0
+
+            rules = flow['rules']
+            mirror_mode = mirror_modes[flow['mirror-mode']]
+            for port in ports:
+                if flow['rule-type'] == 'l3':
+                    if rules['af'] == 4:
+                        tbl = t.mirror_ipv4
+                    else:
+                        tbl = t.mirror_ipv6
+                    def add_with_proto(value, mask):
+                        tbl.entry_add(
+                            [ { 'name': 'ingress_port',
+                                'value': port,
+                                'mask': port_mask },
+                              { 'name': 'src_addr',
+                                'value': rules['src'],
+                                'mask': rules['src-mask'] },
+                              { 'name': 'dst_addr',
+                                'value': rules['dst'],
+                                'mask': rules['dst-mask'] },
+                              { 'name': 'protocol',
+                                'value': value,
+                                'mask': mask },
+                              { 'name': 'src_port',
+                                'value': rules['src-port']['port'],
+                                'mask': int(rules['src-port']['mask'], 0) },
+                              { 'name': 'dst_port',
+                                'value': rules['dst-port']['port'],
+                                'mask': int(rules['dst-port']['mask'], 0) } ],
+                            'act_mirror',
+                            [ { 'name': 'mirror_session', 'val': mirror_session },
+                              { 'name': 'mirror_mode' , 'val': mirror_mode } ])
+                    if rules['protocols']:
+                        for protocol in rules['protocols']:
+                            add_with_proto(protocol, 0xFF)
+                    else:
+                        add_with_proto(0, 0)
+                else:
+                    rules = flow['rules']
+                    t.mirror_non_ip.entry_add(
+                        [ { 'name': 'ingress_port',
+                            'value': port,
+                            'mask': port_mask },
+                          { 'name': 'src',
+                            'value': rules['src']['address'],
+                            'mask': rules['src']['mask'] },
+                          { 'name': 'dst',
+                            'value': rules['dst']['address'],
+                            'mask': rules['dst']['mask'] },
+                          { 'name': 'type',
+                            'value': 0 if rules['type'] is None else int(rules['type'], 0),
+                            'mask': 0 if rules['type'] is None else 0xFFFF },
+                         ],
+                        'act_mirror',
+                        [ { 'name': 'mirror_session', 'val': mirror_session },
+                          { 'name': 'mirror_mode', 'val': mirror_mode } ])
+
     def apply(self, prev_state):
         t = self.t
 
@@ -84,19 +171,16 @@ class State:
         t.port_groups_sel.clear()
         t.port_groups.clear()
 
-        member_id = 1
         for group, members in self.groups.items():
             ## Group is not referenced from
             ## the forwarding table
             self.groups_ref[group] = False
             for dev_port, member in members.items():
-                member['id'] = member_id
                 member['status'] = False
                 t.port_groups.entry_add(
-                    [ { 'name': '$ACTION_MEMBER_ID', 'value': member_id } ],
+                    [ { 'name': '$ACTION_MEMBER_ID', 'value': member['id'] } ],
                     'act_send',
                     [ { 'name': 'egress_port', 'val': dev_port } ])
-                member_id += 1
             self.set_action_selector(t.port_groups_sel.entry_add, group, members)
 
         t.select_output.clear()
@@ -154,22 +238,9 @@ class State:
                                 action,
                                 [ { 'name': 'mac_addr', 'val': new_addr } ])
 
-        t.filter_ipv4.clear()
-        t.filter_ipv6.clear()
-        for prefix in self.source_filter:
-            if prefix.version == 4:
-                tbl = t.filter_ipv4
-            else:
-                tbl = t.filter_ipv6
-            tbl.entry_add(
-                [ { 'name': 'src_addr', 'value': prefix.network_address.exploded,
-                    'prefix_len': prefix.prefixlen } ],
-                'act_drop', [])
+        self.apply_source_filter(None)
 
         t.mirror_cfg.clear()
-        t.mirror_ipv4.clear()
-        t.mirror_ipv6.clear()
-        t.mirror_non_ip.clear()
         t.mirror_encap_l2.clear()
         t.mirror_encap_l3.clear()
         t.mirror_encap_l4.clear()
@@ -244,71 +315,7 @@ class State:
                     'act_mirror_encap_erspan',
                     [ { 'name': 'session', 'val': int(encap['session-id']) } ])
 
-        for flow in self.flow_mirror:
-            if not flow['enable']:
-                continue
-            mirror_session = self.monitor_sessions[flow['monitor-session']]['mirror_session']
-            ports = flow['ingress-ports']
-            port_mask = 0x1ff;
-            if len(ports) == 0:
-                ports = [ 0 ]
-                port_mask = 0
-
-            rules = flow['rules']
-            mirror_mode = mirror_modes[flow['mirror-mode']]
-            for port in ports:
-                if flow['rule-type'] == 'l3':
-                    if rules['af'] == 4:
-                        tbl = t.mirror_ipv4
-                    else:
-                        tbl = t.mirror_ipv6
-                    def add_with_proto(value, mask):
-                        tbl.entry_add(
-                            [ { 'name': 'ingress_port',
-                                'value': port,
-                                'mask': port_mask },
-                              { 'name': 'src_addr',
-                                'value': rules['src'],
-                                'mask': rules['src-mask'] },
-                              { 'name': 'dst_addr',
-                                'value': rules['dst'],
-                                'mask': rules['dst-mask'] },
-                              { 'name': 'protocol',
-                                'value': value,
-                                'mask': mask },
-                              { 'name': 'src_port',
-                                'value': rules['src-port']['port'],
-                                'mask': int(rules['src-port']['mask'], 0) },
-                              { 'name': 'dst_port',
-                                'value': rules['dst-port']['port'],
-                                'mask': int(rules['dst-port']['mask'], 0) } ],
-                            'act_mirror',
-                            [ { 'name': 'mirror_session', 'val': mirror_session },
-                              { 'name': 'mirror_mode' , 'val': mirror_mode } ])
-                    if rules['protocols']:
-                        for protocol in rules['protocols']:
-                            add_with_proto(protocol, 0xFF)
-                    else:
-                        add_with_proto(0, 0)
-                else:
-                    rules = flow['rules']
-                    t.mirror_non_ip.entry_add(
-                        [ { 'name': 'ingress_port',
-                            'value': port,
-                            'mask': port_mask },
-                          { 'name': 'src',
-                            'value': rules['src']['address'],
-                            'mask': rules['src']['mask'] },
-                          { 'name': 'dst',
-                            'value': rules['dst']['address'],
-                            'mask': rules['dst']['mask'] },
-                          { 'name': 'type',
-                            'value': 0 if rules['type'] is None else int(rules['type'], 0),
-                            'mask': 0 if rules['type'] is None else 0xFFFF },
-                         ],
-                        'act_mirror',
-                        [ { 'name': 'mirror_session', 'val': mirror_session },
-                          { 'name': 'mirror_mode', 'val': mirror_mode } ])
+        self.apply_flow_mirror(None)
 
         t.drop.default_entry_reset()
         t.maybe_drop_fragment.default_entry_reset()
@@ -391,6 +398,19 @@ class State:
                 logger.info("port {0} operational status changed to {1}".
                       format(port_name, 'up' if new_oper_status == 1 else 'down'))
 
+        if not self.groups_ref:
+            ## The absence of entries in the groups_ref table indicates
+            ## that this is the first call to update_stats() after a
+            ## dynamic reconfiguration, which bypassed
+            ## state.apply(). In this case, we sync the software state
+            ## to the hardware state.
+            for group, members in self.groups.items():
+                self.groups_ref[group] = False
+                for port, member in members.items():
+                    member['status'] = status[port]
+                    if status[port]:
+                        self.groups_ref[group] = True
+
         for group, members in self.groups.items():
             update = False
             at_least_one_valid = False
@@ -407,7 +427,8 @@ class State:
                     ## the reference to the group from the forwarding
                     ## table before we can set this status for the
                     ## action selector
-                    logger.warning("egress group {0} all member ports are down".format(group))
+                    logger.info(f"egress group {group} operational status changed to down "
+                                +"(all member ports are down)")
                     t.forward.entry_del([ { 'name': 'egress_group', 'value': group } ])
                     self.groups_ref[group] = False
 
@@ -415,6 +436,7 @@ class State:
                                          group, members)
 
                 if at_least_one_valid and not self.groups_ref[group]:
+                    logger.info(f"egress group {group} operational status changed to up")
                     t.forward.entry_add([ { 'name': 'egress_group', 'value': group } ],
                                              None,
                                              [ { 'name': '$SELECTOR_GROUP_ID', 'val': group } ])

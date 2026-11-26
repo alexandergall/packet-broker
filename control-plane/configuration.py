@@ -100,8 +100,8 @@ class Config:
         for part in self.parts:
             part.parse(self.dev, self.state, self.prev_config.state)
 
-    def apply(self):
-        self.state.apply(self.prev_config.state)
+    def apply(self, method='apply'):
+        getattr(self.state, method)(self.prev_config.state)
 
 class ConfigItem(ABC):
     ## Class-wide cache of loaded schemas
@@ -209,6 +209,12 @@ class ConfigPorts(ConfigItem):
             state.ports[dev_port] = port_config
             return dev_port
 
+        ## NB: assignment of member ids must be deterministic for
+        ## dynamic configurations to work correctly, because the
+        ## regular state.apply() method is skipped and thus the
+        ## hardware configuration using the member ids from the
+        ## previous configutation remains active.
+        member_id = 1
         for group in config['egress']:
             id = group['group-id']
             if id in state.groups.keys():
@@ -217,7 +223,11 @@ class ConfigPorts(ConfigItem):
             state.groups[id] = {}
             for port, dict in sorted(group['members'].items()):
                 dev_port = add_port(port, dict['config'])
-                state.groups[id][dev_port] = {}
+                state.groups[id][dev_port] = {
+                    "id": member_id,
+                    "status": False
+                }
+                member_id += 1
 
         for port, dict in sorted(config['ingress'].items()):
             dev_port = add_port(port, dict['config'])

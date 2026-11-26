@@ -95,7 +95,7 @@ class PacketBroker:
         else:
             raise Exception("Invalid initial configuration")
 
-    def _activate(self, config):
+    def _activate(self, config, apply_method='apply'):
         try:
             config.validate()
         except Exception as e:
@@ -107,7 +107,7 @@ class PacketBroker:
             raise Exception(f"Error parsing configuration: {e}")
 
         try:
-            config.apply()
+            config.apply(apply_method)
         except Exception as e:
             self.mb.warning("An unexpected error occured during the application "
                             + f"of the new configuration: {e}", logger)
@@ -206,5 +206,9 @@ class PacketBroker:
                                                        validate=True))
         config = Config(self.bfrt, self.dev, prev_config=self.config,
                         dyn_override=dyn_override)
-        self._activate(config)
+        apply_method = {
+            'source-filter': 'apply_source_filter',
+            'flow-mirror': 'apply_flow_mirror'
+        }[item]
+        self._activate(config, apply_method)
         return None

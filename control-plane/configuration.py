@@ -151,13 +151,19 @@ class ConfigItem(ABC):
 class ConfigTopLevel(ConfigItem):
     schema = "main.json"
 
-    def parse(self, *_):
-        config = self.config
+    ## The top-level defaults have to be applied here rather than in
+    ## parse(), otherwise the initializations of non-mandatory items
+    ## will fail.
+    def __init__(self, config, *_):
+        super().__init__(config)
         config.setdefault('system', {})
         config.setdefault('source-filter', [])
         config.setdefault('monitor-sessions', {})
         config.setdefault('flow-mirror', [])
         config.setdefault('features', {})
+
+    def parse(self, *_):
+        pass
 
 class ConfigSystem(ConfigItem):
     schema = "system.json"
@@ -239,7 +245,8 @@ class ConfigPorts(ConfigItem):
             if not egress_group in state.groups.keys():
                 raise semantic_error(f"Port {port}: undefined egress group {egress_group}")
 
-        for port, dict in sorted(config.get('other', []).items()):
+        config.setdefault('other', {})
+        for port, dict in sorted(config['other'].items()):
             add_port(port, dict['config'])
 
         for port, dict in config['ingress'].items():

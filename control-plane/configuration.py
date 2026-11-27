@@ -367,18 +367,22 @@ class ConfigMonitorSessions(ConfigItem):
                     encap_overhead += 40
 
             ## Cap the size of mirrored packets to not exceed the
-            ## egress MTU.
-            max_packet_len = session_in['max-packet-length']
+            ## egress MTU.  The PCIe CPU port is permitted as
+            ## destination port for mirrored packets but doesn't have
+            ## an entry in the $PORT table, so we skip it here (it is
+            ## also not allowed to occur in the ports configuration).
+            ##
+            ## FIXME: we should figure out what the intrinsic MTU for
+            ## the PCIe CPU port is and clamp to that value rather
+            ## than ignore the port.
             if egress_dev_port in state.ports:
-                ## Only the PCIe CPU port doesn't have an MTU
                 egress_mtu = state.ports[egress_dev_port]['mtu']
-                if max_packet_len == 0 or max_packet_len + encap_overhead > egress_mtu:
-                    max_packet_len = egress_mtu - encap_overhead
-                    logger.info(f"Monitor session {name} on egress interface "
-                                + f"{session_in['egress-port']}: clamping mirror "
-                                + f"packet size at {max_packet_len} bytes to fit MTU "
-                                + f"{egress_mtu}")
-            session['max-packet-length'] = max_packet_len
+                if (session_in['max-packet-length'] == 0 or
+                    session_in['max-packet-length'] + encap_overhead > egress_mtu):
+                    ## Make the clamped capture limit explicit in the
+                    ## processed configuration
+                    session_in['max-packet-length'] = egress_mtu - encap_overhead
+            session['max-packet-length'] = session_in['max-packet-length']
             state.monitor_sessions[name] = session
 
         ## Allocate a mirror session ID for new monitor sessions
